@@ -3,4 +3,6 @@ opencv-python-headless
 uvicorn
 numpy
 python-multipart
-wave
+pymediainfo
+soundfile
+scipy
