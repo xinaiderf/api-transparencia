@@ -9,7 +9,7 @@ app = FastAPI()
 
 
 def apply_overlay(video_base_path, video_overlay_path, output_video_path):
-    """Aplica overlay com 5% de transparência no vídeo base sem alterar o áudio."""
+    """Aplica overlay com 5% de transparência no vídeo base e mantém o áudio original."""
 
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
@@ -23,10 +23,17 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
     fps = int(cap_base.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    codec = int(cap_base.get(cv2.CAP_PROP_FOURCC))
+
+    # Configurar codec manualmente para garantir compatibilidade
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec MP4 compatível
 
     # Criar um vídeo de saída com as mesmas propriedades do vídeo base
-    out = cv2.VideoWriter(output_video_path, codec, fps, (frame_width, frame_height))
+    out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+
+    if not out.isOpened():
+        raise RuntimeError("Erro ao inicializar o VideoWriter para salvar o vídeo.")
+
+    frame_count = 0  # Contador de frames processados
 
     while True:
         ret_base, frame_base = cap_base.read()
@@ -45,15 +52,15 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
             frame_final = frame_base  # Se o overlay acabar, mantém o vídeo base puro
 
         out.write(frame_final)  # Escrever no vídeo de saída
+        frame_count += 1
 
-    # Fechar os arquivos
     cap_base.release()
     cap_overlay.release()
     out.release()
 
-    # Verificar se o arquivo foi criado corretamente
-    if not os.path.exists(output_video_path):
-        raise FileNotFoundError("Erro ao gerar o vídeo final.")
+    # Verificar se o arquivo foi criado corretamente e tem frames
+    if not os.path.exists(output_video_path) or frame_count == 0:
+        raise FileNotFoundError("Erro ao gerar o vídeo final. Nenhum frame foi processado.")
 
 
 @app.post("/overlay/")
