@@ -43,7 +43,7 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
 
         if ret_overlay:
             frame_overlay_resized = cv2.resize(frame_overlay, (frame_width, frame_height))
-            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.15, 0)
+            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.05, 0)
         else:
             frame_final = frame_base  # Continua com o vídeo base caso o overlay termine
 
