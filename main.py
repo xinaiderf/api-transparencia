@@ -5,8 +5,13 @@ import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 from pydub import AudioSegment
+from pydub.utils import which  # Para configurar o SoX
 
 app = FastAPI()
+
+# Configura o Pydub para usar SoX
+AudioSegment.converter = which("sox")
+
 
 def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
     """Aplica overlay no vídeo base e salva sem áudio."""
@@ -45,10 +50,10 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
 
 def extract_audio(video_path, output_audio_path):
-    """Extrai o áudio do vídeo base usando Pydub."""
+    """Extrai o áudio do vídeo base usando Pydub com SoX."""
     try:
-        audio = AudioSegment.from_file(video_path, format="mp4")  # Extrai áudio direto do MP4
-        audio.export(output_audio_path, format="mp3")  # Salva como MP3 para reuso
+        audio = AudioSegment.from_file(video_path, format="mp4")  # Extrai áudio do MP4
+        audio.export(output_audio_path, format="mp3")  # Salva como MP3
     except Exception as e:
         raise FileNotFoundError(f"Erro ao extrair áudio: {e}")
 
@@ -56,7 +61,6 @@ def extract_audio(video_path, output_audio_path):
 def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
     """Adiciona o áudio extraído ao vídeo processado."""
     
-    # Carregar vídeo gerado sem áudio
     cap = cv2.VideoCapture(video_no_audio_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -74,7 +78,6 @@ def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
     if len(audio) / 1000 > duration_video:
         audio = audio[:int(duration_video * 1000)]  # Cortar áudio para o tempo exato do vídeo
 
-    # Processar vídeo e adicionar áudio
     frames = []
     while cap.isOpened():
         ret, frame = cap.read()
@@ -95,7 +98,7 @@ def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
 
     # Criar um arquivo de vídeo que inclua o áudio usando OpenCV e Pydub
     os.rename(output_final_path, output_final_path.replace(".mp4", "_temp.mp4"))
-    os.system(f"ffmpeg -i {output_final_path.replace('.mp4', '_temp.mp4')} -i {final_audio_path} -c:v copy -c:a aac {output_final_path}")
+    os.system(f"sox {output_final_path.replace('.mp4', '_temp.mp4')} {final_audio_path} {output_final_path}")
 
     os.remove(output_final_path.replace(".mp4", "_temp.mp4"))
     os.remove(final_audio_path)
@@ -112,20 +115,16 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
     temp_output_video = tempfile.mktemp(suffix='.mp4')
 
     try:
-        # Salvar os vídeos recebidos
         with open(temp_video_base, "wb") as f:
             f.write(await video_base.read())
 
         with open(temp_video_overlay, "wb") as f:
             f.write(await video_overlay.read())
 
-        # Aplica o overlay sem modificar o áudio
         overlay_videos(temp_video_base, temp_video_overlay, temp_video_no_audio)
 
-        # Extrai o áudio do vídeo base
         extract_audio(temp_video_base, temp_audio_extracted)
 
-        # Adiciona o áudio extraído ao vídeo final
         merge_audio_video(temp_video_no_audio, temp_audio_extracted, temp_output_video)
 
         return FileResponse(temp_output_video, media_type='video/mp4', filename="output.mp4")
@@ -134,7 +133,6 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         return {"error": str(e)}
     
     finally:
-        # Remove arquivos temporários
         for file in [temp_video_base, temp_video_overlay, temp_video_no_audio, temp_audio_extracted, temp_output_video]:
             if os.path.exists(file):
                 os.remove(file)
