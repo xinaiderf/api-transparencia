@@ -8,8 +8,8 @@ import uvicorn
 
 app = FastAPI()
 
-# Função para sobrepor os vídeos e adicionar áudio
-def overlay_videos(video_base_path, video_overlay_path, output_path, temp_audio_path):
+# Função para sobrepor os vídeos e manter o áudio
+def overlay_videos(video_base_path, video_overlay_path, output_path):
     # Carregar os dois vídeos usando OpenCV
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
@@ -44,26 +44,12 @@ def overlay_videos(video_base_path, video_overlay_path, output_path, temp_audio_
     cap_overlay.release()
     out.release()
 
-    # Verifica se o áudio foi extraído corretamente
-    if os.path.exists(temp_audio_path):
-        print(f"Áudio encontrado: {temp_audio_path}")
-    else:
-        print(f"Áudio não foi extraído corretamente: {temp_audio_path}")
-
-    # Adiciona o áudio ao vídeo, se necessário
-    if temp_audio_path:
-        # Usando FFmpeg para adicionar o áudio
-        cmd = [
-            'ffmpeg', '-i', output_path, '-i', temp_audio_path, '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', '-y', output_path
-        ]
-        subprocess.run(cmd)
-
     print(f"Vídeo final gerado em: {output_path}")
 
-# Função para extrair o áudio do vídeo
-def extract_audio(video_path, audio_path):
+# Função para adicionar o áudio ao vídeo
+def add_audio_to_video(video_path, audio_path, output_path):
     cmd = [
-        'ffmpeg', '-i', video_path, '-vn', '-acodec', 'mp3', audio_path
+        'ffmpeg', '-i', video_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', '-y', output_path
     ]
     subprocess.run(cmd)
 
@@ -84,15 +70,12 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
     # Caminho temporário para o vídeo de saída
     temp_output_video = tempfile.mktemp(suffix='.mp4')
 
-    # Caminho temporário para o áudio
-    temp_audio_path = tempfile.mktemp(suffix='.mp3')
-
     try:
-        # Extração do áudio do vídeo base (ou do overlay, conforme necessário)
-        extract_audio(temp_video_base, temp_audio_path)
-
         # Chama a função para sobrepor os vídeos
-        overlay_videos(temp_video_base, temp_video_overlay, temp_output_video, temp_audio_path)
+        overlay_videos(temp_video_base, temp_video_overlay, temp_output_video)
+
+        # Mantém o áudio original do vídeo base
+        add_audio_to_video(temp_output_video, temp_video_base, temp_output_video)
 
         # Envia o arquivo gerado como resposta
         return FileResponse(temp_output_video, media_type='video/mp4', filename='nome.mp4')
@@ -102,10 +85,6 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         # Remove os arquivos temporários
         os.remove(temp_video_base)
         os.remove(temp_video_overlay)
-
-        # Verifica se o áudio foi criado corretamente antes de tentar removê-lo
-        if os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
 
 # Rodando o servidor
 if __name__ == '__main__':
