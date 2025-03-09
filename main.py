@@ -9,11 +9,16 @@ from moviepy import VideoFileClip
 app = FastAPI()
 
 def overlay_videos(video_base_path, video_overlay_path, output_path):
-    """Aplica overlay e comprime o vídeo mantendo a qualidade e áudio original."""
+    """Aplica overlay e compacta o vídeo mantendo a qualidade e áudio original."""
     
-    # Carregar os vídeos com MoviePy para preservação do áudio
+    # Carregar o vídeo base e o overlay
     base_clip = VideoFileClip(video_base_path)
-    overlay_clip = VideoFileClip(video_overlay_path).resize(base_clip.size)
+    
+    # Forçar a leitura correta do áudio e evitar problemas do MoviePy
+    base_clip = base_clip.set_audio(base_clip.audio)
+
+    # Garantir que o overlay tenha o mesmo tamanho do vídeo base
+    overlay_clip = VideoFileClip(video_overlay_path, audio=False).resize(base_clip.size)
 
     # Abrindo com OpenCV para processar os frames
     cap_base = cv2.VideoCapture(video_base_path)
