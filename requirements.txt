@@ -4,4 +4,3 @@ uvicorn
 numpy
 python-multipart
 wave
-pyaudio
