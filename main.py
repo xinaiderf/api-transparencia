@@ -3,7 +3,6 @@ import cv2
 import tempfile
 import wave
 import numpy as np
-import pyaudio
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 
