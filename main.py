@@ -1,10 +1,12 @@
 import os
 import cv2
 import tempfile
-import wave
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
+from pymediainfo import MediaInfo
+from scipy.io.wavfile import write
+import soundfile as sf
 
 app = FastAPI()
 
@@ -45,15 +47,25 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
 
 def extract_audio(video_path, output_audio_path):
-    """Extrai o áudio do vídeo base usando wave (sem FFmpeg ou SoX)."""
-    
-    with wave.open(video_path, "rb") as video_audio:
-        params = video_audio.getparams()  # Obtém parâmetros do áudio original
-        audio_frames = video_audio.readframes(video_audio.getnframes())  # Obtém os dados do áudio
+    """Extrai o áudio de um vídeo MP4 e o salva como WAV."""
 
-    with wave.open(output_audio_path, "wb") as audio_file:
-        audio_file.setparams(params)  # Mantém os mesmos parâmetros do áudio original
-        audio_file.writeframes(audio_frames)  # Salva o áudio extraído
+    media_info = MediaInfo.parse(video_path)
+    audio_tracks = [track for track in media_info.tracks if track.track_type == "Audio"]
+
+    if not audio_tracks:
+        raise FileNotFoundError("O vídeo não contém áudio.")
+
+    audio_track = audio_tracks[0]
+    sample_rate = int(audio_track.sampling_rate or 44100)  # Define a taxa de amostragem padrão
+
+    # Carrega o áudio diretamente usando soundfile
+    audio_data, sample_rate = sf.read(video_path, always_2d=True)
+
+    # Converte para formato correto de 16 bits
+    audio_data = (audio_data * 32767).astype(np.int16)
+
+    # Salva o áudio extraído como WAV
+    write(output_audio_path, sample_rate, audio_data)
 
 
 def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
@@ -66,16 +78,6 @@ def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec compatível com OpenCV
     out = cv2.VideoWriter(output_final_path, fourcc, fps, (frame_width, frame_height))
-
-    audio = wave.open(audio_path, "rb")  # Abre o arquivo de áudio
-
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration_video = frame_count / fps  # Duração do vídeo em segundos
-
-    # Ajustar o áudio para ter o mesmo tempo do vídeo
-    audio_frames = audio.readframes(audio.getnframes())
-    if len(audio_frames) > duration_video * audio.getframerate():
-        audio_frames = audio_frames[:int(duration_video * audio.getframerate())]
 
     frames = []
     while cap.isOpened():
@@ -91,19 +93,10 @@ def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
 
     out.release()
 
-    # Salvar o áudio junto com o vídeo final
-    final_audio_path = tempfile.mktemp(suffix=".wav")
-    with wave.open(final_audio_path, "wb") as final_audio:
-        final_audio.setparams(audio.getparams())
-        final_audio.writeframes(audio_frames)
-
-    os.rename(output_final_path, output_final_path.replace(".mp4", "_temp.mp4"))
-    
     # Simula a fusão de áudio com vídeo sem FFmpeg
+    os.rename(output_final_path, output_final_path.replace(".mp4", "_temp.mp4"))
     os.system(f"cp {output_final_path.replace('.mp4', '_temp.mp4')} {output_final_path}")
-    
     os.remove(output_final_path.replace(".mp4", "_temp.mp4"))
-    os.remove(final_audio_path)
 
 
 @app.post("/overlay/")
