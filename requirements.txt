@@ -3,4 +3,5 @@ opencv-python-headless
 uvicorn
 numpy
 python-multipart
-pydub
+wave
+pyaudio
