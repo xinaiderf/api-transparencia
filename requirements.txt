@@ -3,6 +3,3 @@ opencv-python-headless
 uvicorn
 numpy
 python-multipart
-pymediainfo
-audioread
-scipy
