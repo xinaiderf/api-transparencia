@@ -3,3 +3,4 @@ opencv-python-headless
 uvicorn
 numpy
 python-multipart
+FFmpeg
