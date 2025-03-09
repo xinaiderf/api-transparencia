@@ -66,7 +66,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         overlay_videos(temp_video_base, temp_video_overlay, temp_output_video)
 
         # Envia o arquivo gerado como resposta
-        return FileResponse(temp_output_video, media_type='video/mp4')
+        return FileResponse(temp_output_video, media_type='video/mp4', filename='nome.mp4')
     except Exception as e:
         return {"error": str(e)}
     finally:
