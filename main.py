@@ -29,6 +29,12 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
 
+    # Verificar se o vídeo de saída foi criado corretamente
+    if not out.isOpened():
+        raise RuntimeError("Erro ao criar o arquivo de saída do vídeo.")
+
+    frame_count = 0  # Contador de frames processados
+
     while True:
         ret_base, frame_base = cap_base.read()
         ret_overlay, frame_overlay = cap_overlay.read()
@@ -46,15 +52,16 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
             frame_final = frame_base  # Se o overlay acabar, mantém o vídeo base puro
 
         out.write(frame_final)  # Escrever no vídeo de saída
+        frame_count += 1
 
     # Fechar os arquivos
     cap_base.release()
     cap_overlay.release()
     out.release()
 
-    # Verificar se o arquivo foi criado com sucesso
-    if not os.path.exists(output_video_path):
-        raise FileNotFoundError("Erro ao gerar o vídeo final.")
+    # Verificar se o arquivo foi criado e contém frames
+    if not os.path.exists(output_video_path) or frame_count == 0:
+        raise FileNotFoundError("Erro ao gerar o vídeo final. Nenhum frame foi processado.")
 
 
 @app.post("/overlay/")
