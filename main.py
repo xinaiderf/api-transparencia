@@ -1,13 +1,13 @@
-import os
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 import cv2
-import numpy as np
 import tempfile
+import os
 import uvicorn
 
 app = FastAPI()
 
+# Função para sobrepor os vídeos
 def overlay_videos(video_base_path, video_overlay_path, output_path):
     # Carregar os dois vídeos usando OpenCV
     cap_base = cv2.VideoCapture(video_base_path)
@@ -44,12 +44,14 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
     out.release()
     print(f"Vídeo final gerado em: {output_path}")
 
+# Endereço da API
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...)):
-    # Salva os vídeos temporariamente no servidor
+    # Salva os arquivos binários recebidos do n8n
     temp_video_base = tempfile.mktemp(suffix='.mp4')
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
 
+    # Escrever o conteúdo binário nos arquivos temporários
     with open(temp_video_base, "wb") as f:
         f.write(await video_base.read())
 
@@ -64,7 +66,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         overlay_videos(temp_video_base, temp_video_overlay, temp_output_video)
 
         # Envia o arquivo gerado como resposta
-        return FileResponse(temp_output_video)
+        return FileResponse(temp_output_video, media_type='video/mp4')
     except Exception as e:
         return {"error": str(e)}
     finally:
@@ -72,5 +74,6 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         os.remove(temp_video_base)
         os.remove(temp_video_overlay)
 
+# Rodando o servidor
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8010)
