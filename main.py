@@ -9,34 +9,28 @@ app = FastAPI()
 
 
 def apply_overlay(video_base_path, video_overlay_path, output_video_path):
-    """Aplica um overlay com 5% de transparência no vídeo base e mantém o tamanho original."""
+    """Aplica um overlay com 5% de transparência no vídeo base e mantém o áudio original."""
 
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    # Verificar se os vídeos foram carregados corretamente
+    # Verifica se os vídeos foram abertos corretamente
     if not cap_base.isOpened():
-        raise RuntimeError(f"Erro ao abrir o vídeo base: {video_base_path}")
+        raise RuntimeError("Erro ao abrir o vídeo base.")
     if not cap_overlay.isOpened():
-        raise RuntimeError(f"Erro ao abrir o vídeo overlay: {video_overlay_path}")
+        raise RuntimeError("Erro ao abrir o vídeo overlay.")
 
     # Propriedades do vídeo base
     fps = int(cap_base.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Criar um vídeo de saída com as mesmas propriedades do vídeo base
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
 
-    # Verificar se o vídeo de saída foi criado corretamente
-    if not out.isOpened():
-        raise RuntimeError(f"Erro ao criar o arquivo de saída: {output_video_path}")
-
-    frame_count = 0  # Contador de frames processados
-
-    while frame_count < total_frames:
+    # Processamento dos frames
+    while True:
         ret_base, frame_base = cap_base.read()
         ret_overlay, frame_overlay = cap_overlay.read()
 
@@ -53,19 +47,15 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
             frame_final = frame_base  # Se o overlay acabar, mantém o vídeo base puro
 
         out.write(frame_final)  # Escrever no vídeo de saída
-        frame_count += 1
 
     # Fechar os arquivos
     cap_base.release()
     cap_overlay.release()
     out.release()
 
-    # Verificar se o arquivo foi criado e contém frames
+    # Verificar se o arquivo foi criado corretamente
     if not os.path.exists(output_video_path):
-        raise FileNotFoundError(f"Erro ao gerar o vídeo final: {output_video_path} não existe.")
-
-    if frame_count == 0:
-        raise FileNotFoundError("Erro ao gerar o vídeo final: Nenhum frame foi processado.")
+        raise FileNotFoundError("Erro ao gerar o vídeo final.")
 
 
 @app.post("/overlay/")
@@ -89,7 +79,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
 
         # Garantir que o arquivo final foi gerado corretamente antes de enviar a resposta
         if not os.path.exists(temp_output_video):
-            raise FileNotFoundError(f"O arquivo final não foi gerado corretamente: {temp_output_video}")
+            raise FileNotFoundError("O arquivo final não foi gerado corretamente.")
 
         return FileResponse(temp_output_video, media_type='video/mp4', filename="output.mp4")
 
