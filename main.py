@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 import tempfile
 import os
 from fastapi import FastAPI, File, UploadFile
@@ -12,38 +11,31 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    # Pegamos as propriedades do vídeo base (que devem ser mantidas)
+    # Pegamos as propriedades do vídeo base (mantemos essas configurações)
     fps = cap_base.get(cv2.CAP_PROP_FPS)
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Criamos um VideoWriter com as mesmas configurações do vídeo base
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
-    overlay_frames = []
+    # Processa os frames diretamente sem armazenar tudo na memória
     while True:
-        ret, frame = cap_overlay.read()
-        if not ret:
-            break
-        overlay_frames.append(cv2.resize(frame, (frame_width, frame_height)))
-
-    overlay_index = 0
-    overlay_length = len(overlay_frames)
-
-    while cap_base.isOpened():
         ret_base, frame_base = cap_base.read()
         if not ret_base:
             break
 
-        # Pega o frame correspondente do overlay (loop infinito)
-        frame_overlay_resized = overlay_frames[overlay_index % overlay_length]
+        ret_overlay, frame_overlay = cap_overlay.read()
+        if not ret_overlay:
+            cap_overlay.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reinicia overlay
+            ret_overlay, frame_overlay = cap_overlay.read()
+            if not ret_overlay:
+                break  # Falha ao reiniciar overlay, sai do loop
 
-        # Aplica transparência no overlay (ajuste o 0.15 se quiser mais ou menos visível)
+        frame_overlay_resized = cv2.resize(frame_overlay, (frame_width, frame_height))
         frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.15, 0)
 
         out.write(frame_final)
-        overlay_index += 1  # Avança para o próximo frame do overlay
 
     cap_base.release()
     cap_overlay.release()
