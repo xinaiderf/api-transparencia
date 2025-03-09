@@ -4,23 +4,24 @@ import tempfile
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from moviepy import VideoFileClip
+from moviepy.editor import VideoFileClip
 
 app = FastAPI()
 
 def overlay_videos(video_base_path, video_overlay_path, output_path):
     """Aplica overlay e compacta o vídeo mantendo a qualidade e áudio original."""
-    
-    # Carregar o vídeo base e o overlay
-    base_clip = VideoFileClip(video_base_path)
-    
-    # Forçar a leitura correta do áudio e evitar problemas do MoviePy
-    base_clip = base_clip.set_audio(base_clip.audio)
 
-    # Garantir que o overlay tenha o mesmo tamanho do vídeo base
+    # Carregar os vídeos corretamente
+    base_clip = VideoFileClip(video_base_path)
+
+    # Verifica se há áudio no vídeo base
+    if base_clip.audio is not None:
+        base_clip = base_clip.set_audio(base_clip.audio)
+
+    # Carregar o overlay sem áudio e garantir que tenha o mesmo tamanho do vídeo base
     overlay_clip = VideoFileClip(video_overlay_path, audio=False).resize(base_clip.size)
 
-    # Abrindo com OpenCV para processar os frames
+    # Abrindo os vídeos com OpenCV para processar os frames
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
@@ -40,7 +41,7 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
 
         if ret_overlay:
             frame_overlay_resized = cv2.resize(frame_overlay, (frame_width, frame_height))
-            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.05, 0)
+            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.15, 0)
         else:
             frame_final = frame_base  # Se o overlay terminar, continua apenas com o vídeo base
 
@@ -52,15 +53,18 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
 
     # Criar um novo vídeo comprimido com áudio original usando MoviePy
     final_clip = VideoFileClip(output_path)
-    final_clip = final_clip.set_audio(base_clip.audio)  # Mantém o áudio original
 
-    # Compactação eficiente usando libx265 e bitrate controlado
+    # Se o vídeo base tinha áudio, mantemos no final
+    if base_clip.audio is not None:
+        final_clip = final_clip.set_audio(base_clip.audio)
+
+    # Compactação eficiente com libx265
     final_clip.write_videofile(
         output_path,
         codec="libx265",   # H.265 para melhor compressão
-        audio_codec="aac",  # Compressão eficiente de áudio
+        audio_codec="aac",  # Compactação eficiente de áudio
         bitrate="800k",     # Redução do bitrate para compactação melhor
-        preset="slow"       # Melhor equilíbrio entre tempo de processamento e qualidade
+        preset="slow"       # Melhor qualidade x tempo de processamento
     )
 
 @app.post("/overlay/")
