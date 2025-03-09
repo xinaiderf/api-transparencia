@@ -4,7 +4,7 @@ import tempfile
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 
 app = FastAPI()
 
