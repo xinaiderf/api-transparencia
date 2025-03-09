@@ -14,11 +14,11 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    # Garantir que os vídeos foram carregados corretamente
+    # Verificar se os vídeos foram carregados corretamente
     if not cap_base.isOpened():
-        raise RuntimeError("Erro ao abrir o vídeo base.")
+        raise RuntimeError(f"Erro ao abrir o vídeo base: {video_base_path}")
     if not cap_overlay.isOpened():
-        raise RuntimeError("Erro ao abrir o vídeo overlay.")
+        raise RuntimeError(f"Erro ao abrir o vídeo overlay: {video_overlay_path}")
 
     # Propriedades do vídeo base
     fps = int(cap_base.get(cv2.CAP_PROP_FPS))
@@ -29,6 +29,10 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
     # Criar um vídeo de saída com as mesmas propriedades do vídeo base
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+
+    # Verificar se o vídeo de saída foi criado corretamente
+    if not out.isOpened():
+        raise RuntimeError(f"Erro ao criar o arquivo de saída: {output_video_path}")
 
     frame_count = 0  # Contador de frames processados
 
@@ -56,9 +60,12 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
     cap_overlay.release()
     out.release()
 
-    # Verificar se o arquivo foi criado corretamente
-    if not os.path.exists(output_video_path) or frame_count == 0:
-        raise FileNotFoundError("Erro ao gerar o vídeo final. Nenhum frame foi processado.")
+    # Verificar se o arquivo foi criado e contém frames
+    if not os.path.exists(output_video_path):
+        raise FileNotFoundError(f"Erro ao gerar o vídeo final: {output_video_path} não existe.")
+
+    if frame_count == 0:
+        raise FileNotFoundError("Erro ao gerar o vídeo final: Nenhum frame foi processado.")
 
 
 @app.post("/overlay/")
@@ -82,7 +89,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
 
         # Garantir que o arquivo final foi gerado corretamente antes de enviar a resposta
         if not os.path.exists(temp_output_video):
-            raise FileNotFoundError("O arquivo final não foi gerado corretamente.")
+            raise FileNotFoundError(f"O arquivo final não foi gerado corretamente: {temp_output_video}")
 
         return FileResponse(temp_output_video, media_type='video/mp4', filename="output.mp4")
 
