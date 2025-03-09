@@ -58,13 +58,17 @@ def add_original_audio(video_base_path, video_no_audio_path, output_final_path):
     if not os.path.exists(video_no_audio_path):
         raise FileNotFoundError(f"Vídeo sem áudio não encontrado: {video_no_audio_path}")
 
-    # Mescla o vídeo com o áudio original usando ffmpeg-python
-    ffmpeg.input(video_no_audio_path).output(
-        output_final_path, 
+    # Mescla o vídeo com o áudio original usando ffmpeg-python corretamente
+    input_video = ffmpeg.input(video_no_audio_path)
+    input_audio = ffmpeg.input(video_base_path)
+
+    # Adiciona o áudio sem reprocessar o vídeo
+    ffmpeg.output(
+        input_video['v'],  # Pega apenas o vídeo do arquivo processado
+        input_audio['a'],  # Pega apenas o áudio do vídeo original
+        output_final_path,
         vcodec="copy",  # Mantém o vídeo sem reprocessar
-        acodec="copy",  # Mantém o áudio original
-        map="0:v",  # Usa o vídeo do arquivo sem áudio
-        map="1:a"   # Usa o áudio do vídeo base
+        acodec="copy"   # Mantém o áudio original sem perdas
     ).run(overwrite_output=True)
 
 
