@@ -2,38 +2,34 @@ import os
 import cv2
 import tempfile
 import numpy as np
-import ffmpeg
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
+from moviepy.editor import VideoFileClip
+from pydub import AudioSegment
 
 app = FastAPI()
 
 def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
     """Aplica overlay no vídeo base e salva sem áudio."""
 
-    # Carregar os vídeos com OpenCV
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    # Obtém as propriedades do vídeo base
     fps = cap_base.get(cv2.CAP_PROP_FPS)
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Configura o VideoWriter usando o codec MP4V (compatível com OpenCV)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec MP4V para evitar erro
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec MP4V compatível com OpenCV
     out = cv2.VideoWriter(output_video_no_audio, fourcc, fps, (frame_width, frame_height))
 
-    # Processar os frames e aplicar o overlay
     while cap_base.isOpened():
         ret_base, frame_base = cap_base.read()
         ret_overlay, frame_overlay = cap_overlay.read()
 
         if not ret_base:
-            break  # Se o vídeo base acabar, interrompe o loop
+            break
 
         if ret_overlay:
-            # Redimensiona o overlay para o tamanho do vídeo base
             frame_overlay_resized = cv2.resize(frame_overlay, (frame_width, frame_height))
             frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.15, 0)
         else:
@@ -41,49 +37,56 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
         out.write(frame_final)  # Salva o frame final no vídeo de saída
 
-    # Libera os vídeos e finaliza o processamento
     cap_base.release()
     cap_overlay.release()
     out.release()
 
-    # Verifica se o arquivo foi gerado corretamente
     if not os.path.exists(output_video_no_audio):
         raise FileNotFoundError(f"Erro ao gerar o vídeo sem áudio: {output_video_no_audio}")
 
 
-def add_original_audio(video_base_path, video_no_audio_path, output_final_path):
-    """Adiciona o áudio original do vídeo base ao vídeo processado, sem reprocessar."""
+def extract_audio(video_path, output_audio_path):
+    """Extrai o áudio do vídeo base usando Pydub."""
+    video = VideoFileClip(video_path)
     
-    # Garante que o vídeo sem áudio existe antes de tentar adicionar o áudio
-    if not os.path.exists(video_no_audio_path):
-        raise FileNotFoundError(f"Vídeo sem áudio não encontrado: {video_no_audio_path}")
+    if video.audio:
+        audio = video.audio.to_soundarray(fps=44100)
+        audio_segment = AudioSegment(
+            np.int16(audio * 32767).tobytes(),
+            frame_rate=44100,
+            sample_width=2,
+            channels=2
+        )
+        audio_segment.export(output_audio_path, format="mp3")
+    else:
+        raise FileNotFoundError("O vídeo base não possui áudio.")
 
-    # Mescla o vídeo com o áudio original usando ffmpeg-python corretamente
-    input_video = ffmpeg.input(video_no_audio_path)
-    input_audio = ffmpeg.input(video_base_path)
 
-    # Adiciona o áudio sem reprocessar o vídeo
-    ffmpeg.output(
-        input_video['v'],  # Pega apenas o vídeo do arquivo processado
-        input_audio['a'],  # Pega apenas o áudio do vídeo original
-        output_final_path,
-        vcodec="copy",  # Mantém o vídeo sem reprocessar
-        acodec="copy"   # Mantém o áudio original sem perdas
-    ).run(overwrite_output=True)
+def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
+    """Adiciona o áudio extraído ao vídeo processado."""
+    video = VideoFileClip(video_no_audio_path)
+    audio = AudioSegment.from_file(audio_path)
+
+    # Converter o áudio para um formato que MoviePy aceite
+    temp_audio_path = tempfile.mktemp(suffix=".mp3")
+    audio.export(temp_audio_path, format="mp3")
+
+    final_video = video.set_audio(temp_audio_path)
+    final_video.write_videofile(output_final_path, codec="libx264", audio_codec="aac")
 
 
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...)):
     """Recebe os vídeos e retorna o vídeo final com overlay e áudio original."""
     
-    # Criando arquivos temporários
     temp_video_base = tempfile.mktemp(suffix='.mp4')
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
     temp_video_no_audio = tempfile.mktemp(suffix='.mp4')
+    temp_audio_extracted = tempfile.mktemp(suffix='.mp3')
     temp_output_video = tempfile.mktemp(suffix='.mp4')
 
     try:
-        # Salvar os vídeos enviados para arquivos temporários
+        # Salvar os vídeos recebidos
         with open(temp_video_base, "wb") as f:
             f.write(await video_base.read())
 
@@ -93,18 +96,20 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         # Aplica o overlay sem modificar o áudio
         overlay_videos(temp_video_base, temp_video_overlay, temp_video_no_audio)
 
-        # Adiciona o áudio original sem reprocessamento
-        add_original_audio(temp_video_base, temp_video_no_audio, temp_output_video)
+        # Extrai o áudio do vídeo base
+        extract_audio(temp_video_base, temp_audio_extracted)
 
-        # Retorna o vídeo final ao usuário
+        # Adiciona o áudio extraído ao vídeo final
+        merge_audio_video(temp_video_no_audio, temp_audio_extracted, temp_output_video)
+
         return FileResponse(temp_output_video, media_type='video/mp4', filename="output.mp4")
     
     except Exception as e:
         return {"error": str(e)}
     
     finally:
-        # Remove os arquivos temporários com segurança
-        for file in [temp_video_base, temp_video_overlay, temp_video_no_audio, temp_output_video]:
+        # Remove arquivos temporários
+        for file in [temp_video_base, temp_video_overlay, temp_video_no_audio, temp_audio_extracted, temp_output_video]:
             if os.path.exists(file):
                 os.remove(file)
 
