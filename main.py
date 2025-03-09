@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 import cv2
 import tempfile
 import os
+import subprocess
 import uvicorn
 
 app = FastAPI()
@@ -44,6 +45,15 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
     out.release()
     print(f"Vídeo final gerado em: {output_path}")
 
+# Função para adicionar o áudio usando ffmpeg
+def add_audio_to_video(video_path, audio_path, output_video_path):
+    # Usa ffmpeg para adicionar o áudio ao vídeo
+    command = [
+        'ffmpeg', '-i', video_path, '-i', audio_path, '-c:v', 'libx264', '-c:a', 'aac',
+        '-strict', 'experimental', '-shortest', '-y', output_video_path
+    ]
+    subprocess.run(command)
+
 # Endereço da API
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...)):
@@ -60,19 +70,30 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
 
     # Caminho temporário para o vídeo de saída
     temp_output_video = tempfile.mktemp(suffix='.mp4')
+    temp_audio_path = tempfile.mktemp(suffix='.mp3')
 
     try:
-        # Chama a função para sobrepor os vídeos
+        # Primeiro, sobrepõe os vídeos
         overlay_videos(temp_video_base, temp_video_overlay, temp_output_video)
 
+        # Extrai o áudio do vídeo base (usando ffmpeg)
+        audio_command = [
+            'ffmpeg', '-i', temp_video_base, '-vn', '-acodec', 'mp3', temp_audio_path
+        ]
+        subprocess.run(audio_command)
+
+        # Adiciona o áudio extraído ao vídeo final
+        add_audio_to_video(temp_output_video, temp_audio_path, temp_output_video)
+
         # Envia o arquivo gerado como resposta
-        return FileResponse(temp_output_video, media_type='video/mp4', filename='nome.mp4')
+        return FileResponse(temp_output_video, media_type='video/mp4', filename='video_final.mp4')
     except Exception as e:
         return {"error": str(e)}
     finally:
         # Remove os arquivos temporários
         os.remove(temp_video_base)
         os.remove(temp_video_overlay)
+        os.remove(temp_audio_path)
 
 # Rodando o servidor
 if __name__ == '__main__':
