@@ -9,27 +9,32 @@ app = FastAPI()
 
 
 def apply_overlay(video_base_path, video_overlay_path, output_video_path):
-    """Aplica um overlay com 5% de transparência no vídeo base e mantém o áudio original."""
+    """Aplica um overlay com 5% de transparência no vídeo base e mantém o tamanho original."""
 
-    # Abrir os vídeos
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    # Pegar as propriedades do vídeo base
+    # Verificar se os vídeos foram carregados corretamente
+    if not cap_base.isOpened():
+        raise RuntimeError("Erro ao abrir o vídeo base.")
+    if not cap_overlay.isOpened():
+        raise RuntimeError("Erro ao abrir o vídeo overlay.")
+
+    # Pegar propriedades do vídeo base
     fps = int(cap_base.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Criar o vídeo de saída com as mesmas propriedades do vídeo base
+    # Criar o vídeo de saída
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
 
-    while cap_base.isOpened():
+    while True:
         ret_base, frame_base = cap_base.read()
         ret_overlay, frame_overlay = cap_overlay.read()
 
         if not ret_base:
-            break  # Fim do vídeo base
+            break  # Se o vídeo base acabou, parar
 
         if ret_overlay:
             # Redimensionar o overlay para o mesmo tamanho do vídeo base
@@ -47,6 +52,7 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path):
     cap_overlay.release()
     out.release()
 
+    # Verificar se o arquivo foi criado com sucesso
     if not os.path.exists(output_video_path):
         raise FileNotFoundError("Erro ao gerar o vídeo final.")
 
@@ -69,6 +75,10 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
 
         # Aplicar o overlay
         apply_overlay(temp_video_base, temp_video_overlay, temp_output_video)
+
+        # Verificar se o arquivo foi gerado corretamente antes de enviar a resposta
+        if not os.path.exists(temp_output_video):
+            raise FileNotFoundError("O arquivo final não foi gerado corretamente.")
 
         return FileResponse(temp_output_video, media_type='video/mp4', filename="output.mp4")
 
