@@ -2,33 +2,31 @@ import os
 import cv2
 import numpy as np
 import tempfile
-import subprocess
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 
 app = FastAPI()
 
 
-def apply_overlay(video_base_path, video_overlay_path, output_video_path_no_audio):
-    """Aplica um overlay com 5% de transparência no vídeo base e mantém o áudio original."""
+def apply_overlay(video_base_path, video_overlay_path, output_video_path):
+    """Aplica overlay com 5% de transparência no vídeo base sem alterar o áudio."""
 
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    # Verifica se os vídeos foram abertos corretamente
     if not cap_base.isOpened():
         raise RuntimeError(f"Erro ao abrir o vídeo base: {video_base_path}")
     if not cap_overlay.isOpened():
         raise RuntimeError(f"Erro ao abrir o vídeo overlay: {video_overlay_path}")
 
-    # Propriedades do vídeo base
+    # Pegar propriedades do vídeo base
     fps = int(cap_base.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    codec = int(cap_base.get(cv2.CAP_PROP_FOURCC))
 
-    # Criar um vídeo de saída SEM ÁUDIO com as mesmas propriedades do vídeo base
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_video_path_no_audio, fourcc, fps, (frame_width, frame_height))
+    # Criar um vídeo de saída com as mesmas propriedades do vídeo base
+    out = cv2.VideoWriter(output_video_path, codec, fps, (frame_width, frame_height))
 
     while True:
         ret_base, frame_base = cap_base.read()
@@ -54,22 +52,8 @@ def apply_overlay(video_base_path, video_overlay_path, output_video_path_no_audi
     out.release()
 
     # Verificar se o arquivo foi criado corretamente
-    if not os.path.exists(output_video_path_no_audio):
-        raise FileNotFoundError(f"Erro ao gerar o vídeo final sem áudio: {output_video_path_no_audio}")
-
-
-def merge_audio(video_base_path, video_no_audio_path, output_final_path):
-    """Mantém o áudio original do vídeo base e adiciona ao vídeo processado."""
-    
-    temp_output = output_final_path.replace(".mp4", "_temp.mp4")
-
-    command = [
-        "ffmpeg", "-i", video_no_audio_path, "-i", video_base_path,
-        "-c", "copy", "-map", "0:v:0", "-map", "1:a:0",
-        "-y", temp_output
-    ]
-    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    os.replace(temp_output, output_final_path)
+    if not os.path.exists(output_video_path):
+        raise FileNotFoundError("Erro ao gerar o vídeo final.")
 
 
 @app.post("/overlay/")
@@ -78,7 +62,6 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
 
     temp_video_base = tempfile.mktemp(suffix='.mp4')
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
-    temp_video_no_audio = tempfile.mktemp(suffix='.mp4')
     temp_output_video = tempfile.mktemp(suffix='.mp4')
 
     try:
@@ -90,10 +73,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
             f.write(await video_overlay.read())
 
         # Aplicar overlay sem mexer no áudio
-        apply_overlay(temp_video_base, temp_video_overlay, temp_video_no_audio)
-
-        # Manter o áudio original
-        merge_audio(temp_video_base, temp_video_no_audio, temp_output_video)
+        apply_overlay(temp_video_base, temp_video_overlay, temp_output_video)
 
         # Garantir que o arquivo final foi gerado corretamente antes de enviar a resposta
         if not os.path.exists(temp_output_video):
@@ -106,7 +86,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
 
     finally:
         # Remover arquivos temporários após processamento
-        for file in [temp_video_base, temp_video_overlay, temp_video_no_audio, temp_output_video]:
+        for file in [temp_video_base, temp_video_overlay, temp_output_video]:
             if os.path.exists(file):
                 os.remove(file)
 
