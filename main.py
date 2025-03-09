@@ -1,10 +1,11 @@
 import os
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import FileResponse
 import cv2
 import numpy as np
 import tempfile
 
-app = Flask(__name__)
+app = FastAPI()
 
 def overlay_videos(video_base_path, video_overlay_path, output_path):
     # Carregar os dois vídeos usando OpenCV
@@ -42,21 +43,17 @@ def overlay_videos(video_base_path, video_overlay_path, output_path):
     out.release()
     print(f"Vídeo final gerado em: {output_path}")
 
-@app.route('/overlay', methods=['POST'])
-def overlay_api():
-    # Verifica se os vídeos foram enviados corretamente
-    if 'video_base' not in request.files or 'video_overlay' not in request.files:
-        return jsonify({"error": "Os arquivos de vídeo são necessários."}), 400
-
-    video_base = request.files['video_base']
-    video_overlay = request.files['video_overlay']
-
+@app.post("/overlay/")
+async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...)):
     # Salva os vídeos temporariamente no servidor
     temp_video_base = tempfile.mktemp(suffix='.mp4')
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
-    
-    video_base.save(temp_video_base)
-    video_overlay.save(temp_video_overlay)
+
+    with open(temp_video_base, "wb") as f:
+        f.write(await video_base.read())
+
+    with open(temp_video_overlay, "wb") as f:
+        f.write(await video_overlay.read())
 
     # Caminho temporário para o vídeo de saída
     temp_output_video = tempfile.mktemp(suffix='.mp4')
@@ -66,13 +63,11 @@ def overlay_api():
         overlay_videos(temp_video_base, temp_video_overlay, temp_output_video)
 
         # Envia o arquivo gerado como resposta
-        return jsonify({"message": "Vídeo gerado com sucesso.", "output_video": temp_output_video})
+        return FileResponse(temp_output_video)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return {"error": str(e)}
     finally:
         # Remove os arquivos temporários
         os.remove(temp_video_base)
         os.remove(temp_video_overlay)
 
-if __name__ == '__main__':
-    app.run(debug=True, port=8010)
