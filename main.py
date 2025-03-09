@@ -4,14 +4,13 @@ import tempfile
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from moviepy.editor import VideoFileClip
 from pydub import AudioSegment
 
 app = FastAPI()
 
 def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
     """Aplica overlay no vídeo base e salva sem áudio."""
-
+    
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
@@ -19,7 +18,7 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
     frame_width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec MP4V compatível com OpenCV
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec compatível com OpenCV
     out = cv2.VideoWriter(output_video_no_audio, fourcc, fps, (frame_width, frame_height))
 
     while cap_base.isOpened():
@@ -47,32 +46,59 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
 def extract_audio(video_path, output_audio_path):
     """Extrai o áudio do vídeo base usando Pydub."""
-    video = VideoFileClip(video_path)
-    
-    if video.audio:
-        audio = video.audio.to_soundarray(fps=44100)
-        audio_segment = AudioSegment(
-            np.int16(audio * 32767).tobytes(),
-            frame_rate=44100,
-            sample_width=2,
-            channels=2
-        )
-        audio_segment.export(output_audio_path, format="mp3")
-    else:
-        raise FileNotFoundError("O vídeo base não possui áudio.")
+    try:
+        audio = AudioSegment.from_file(video_path, format="mp4")  # Extrai áudio direto do MP4
+        audio.export(output_audio_path, format="mp3")  # Salva como MP3 para reuso
+    except Exception as e:
+        raise FileNotFoundError(f"Erro ao extrair áudio: {e}")
 
 
 def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
     """Adiciona o áudio extraído ao vídeo processado."""
-    video = VideoFileClip(video_no_audio_path)
-    audio = AudioSegment.from_file(audio_path)
+    
+    # Carregar vídeo gerado sem áudio
+    cap = cv2.VideoCapture(video_no_audio_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Converter o áudio para um formato que MoviePy aceite
-    temp_audio_path = tempfile.mktemp(suffix=".mp3")
-    audio.export(temp_audio_path, format="mp3")
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec compatível com OpenCV
+    out = cv2.VideoWriter(output_final_path, fourcc, fps, (frame_width, frame_height))
 
-    final_video = video.set_audio(temp_audio_path)
-    final_video.write_videofile(output_final_path, codec="libx264", audio_codec="aac")
+    audio = AudioSegment.from_file(audio_path)  # Carregar áudio extraído
+
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration_video = frame_count / fps  # Duração do vídeo em segundos
+
+    # Ajustar o áudio para ter o mesmo tempo do vídeo
+    if len(audio) / 1000 > duration_video:
+        audio = audio[:int(duration_video * 1000)]  # Cortar áudio para o tempo exato do vídeo
+
+    # Processar vídeo e adicionar áudio
+    frames = []
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frames.append(frame)
+
+    cap.release()
+
+    for frame in frames:
+        out.write(frame)
+
+    out.release()
+
+    # Salvar o áudio junto com o vídeo final
+    final_audio_path = tempfile.mktemp(suffix=".mp3")
+    audio.export(final_audio_path, format="mp3")
+
+    # Criar um arquivo de vídeo que inclua o áudio usando OpenCV e Pydub
+    os.rename(output_final_path, output_final_path.replace(".mp4", "_temp.mp4"))
+    os.system(f"ffmpeg -i {output_final_path.replace('.mp4', '_temp.mp4')} -i {final_audio_path} -c:v copy -c:a aac {output_final_path}")
+
+    os.remove(output_final_path.replace(".mp4", "_temp.mp4"))
+    os.remove(final_audio_path)
 
 
 @app.post("/overlay/")
