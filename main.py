@@ -2,11 +2,10 @@ import os
 import cv2
 import tempfile
 import numpy as np
+import audioread
+from scipy.io.wavfile import write
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from pymediainfo import MediaInfo
-from scipy.io.wavfile import write
-import soundfile as sf
 
 app = FastAPI()
 
@@ -48,23 +47,27 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
 def extract_audio(video_path, output_audio_path):
     """Extrai o áudio de um vídeo MP4 e o salva como WAV."""
+    
+    # Lista para armazenar os frames de áudio
+    audio_data = []
 
-    media_info = MediaInfo.parse(video_path)
-    audio_tracks = [track for track in media_info.tracks if track.track_type == "Audio"]
+    # Extraindo áudio do vídeo usando audioread
+    with audioread.audio_open(video_path) as audio_file:
+        sample_rate = audio_file.samplerate  # Obtém a taxa de amostragem
+        num_channels = audio_file.channels   # Obtém o número de canais
 
-    if not audio_tracks:
-        raise FileNotFoundError("O vídeo não contém áudio.")
+        # Lendo os frames do áudio
+        for buffer in audio_file:
+            audio_data.append(np.frombuffer(buffer, dtype=np.int16))
 
-    audio_track = audio_tracks[0]
-    sample_rate = int(audio_track.sampling_rate or 44100)  # Define a taxa de amostragem padrão
+    # Concatenar os dados de áudio em um único array
+    audio_data = np.concatenate(audio_data)
 
-    # Carrega o áudio diretamente usando soundfile
-    audio_data, sample_rate = sf.read(video_path, always_2d=True)
+    # Se for estéreo, converte para mono somando os canais
+    if num_channels > 1:
+        audio_data = audio_data.reshape((-1, num_channels)).mean(axis=1).astype(np.int16)
 
-    # Converte para formato correto de 16 bits
-    audio_data = (audio_data * 32767).astype(np.int16)
-
-    # Salva o áudio extraído como WAV
+    # Salvar o áudio extraído como WAV
     write(output_audio_path, sample_rate, audio_data)
 
 
