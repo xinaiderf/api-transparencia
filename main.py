@@ -2,16 +2,15 @@ import os
 import cv2
 import tempfile
 import numpy as np
-import audioread
-from scipy.io.wavfile import write
+import subprocess
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 
 app = FastAPI()
 
-def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
-    """Aplica overlay no vídeo base e salva sem áudio."""
-    
+def apply_overlay(video_base_path, video_overlay_path, output_video_no_audio):
+    """Aplica o vídeo overlay sobre o vídeo base com 5% de transparência e mantém o tamanho original."""
+
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
 
@@ -27,89 +26,44 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
         ret_overlay, frame_overlay = cap_overlay.read()
 
         if not ret_base:
-            break
+            break  # Fim do vídeo base
 
         if ret_overlay:
             frame_overlay_resized = cv2.resize(frame_overlay, (frame_width, frame_height))
-            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.15, 0)
+            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.05, 0)
         else:
-            frame_final = frame_base  # Se o overlay acabar, continua apenas com o vídeo base
+            frame_final = frame_base  # Se o overlay acabar, mantém o vídeo base puro
 
-        out.write(frame_final)  # Salva o frame final no vídeo de saída
+        out.write(frame_final)
 
     cap_base.release()
     cap_overlay.release()
     out.release()
 
     if not os.path.exists(output_video_no_audio):
-        raise FileNotFoundError(f"Erro ao gerar o vídeo sem áudio: {output_video_no_audio}")
+        raise FileNotFoundError("Erro ao gerar o vídeo sem áudio.")
 
 
-def extract_audio(video_path, output_audio_path):
-    """Extrai o áudio de um vídeo MP4 e o salva como WAV."""
-    
-    # Lista para armazenar os frames de áudio
-    audio_data = []
+def merge_audio(video_base_path, video_no_audio_path, output_final_path):
+    """Copia o áudio original do vídeo base e adiciona ao vídeo processado, sem reprocessar."""
+    temp_output = output_final_path.replace(".mp4", "_temp.mp4")
 
-    # Extraindo áudio do vídeo usando audioread
-    with audioread.audio_open(video_path) as audio_file:
-        sample_rate = audio_file.samplerate  # Obtém a taxa de amostragem
-        num_channels = audio_file.channels   # Obtém o número de canais
-
-        # Lendo os frames do áudio
-        for buffer in audio_file:
-            audio_data.append(np.frombuffer(buffer, dtype=np.int16))
-
-    # Concatenar os dados de áudio em um único array
-    audio_data = np.concatenate(audio_data)
-
-    # Se for estéreo, converte para mono somando os canais
-    if num_channels > 1:
-        audio_data = audio_data.reshape((-1, num_channels)).mean(axis=1).astype(np.int16)
-
-    # Salvar o áudio extraído como WAV
-    write(output_audio_path, sample_rate, audio_data)
-
-
-def merge_audio_video(video_no_audio_path, audio_path, output_final_path):
-    """Adiciona o áudio extraído ao vídeo processado."""
-    
-    cap = cv2.VideoCapture(video_no_audio_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec compatível com OpenCV
-    out = cv2.VideoWriter(output_final_path, fourcc, fps, (frame_width, frame_height))
-
-    frames = []
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(frame)
-
-    cap.release()
-
-    for frame in frames:
-        out.write(frame)
-
-    out.release()
-
-    # Simula a fusão de áudio com vídeo sem FFmpeg
-    os.rename(output_final_path, output_final_path.replace(".mp4", "_temp.mp4"))
-    os.system(f"cp {output_final_path.replace('.mp4', '_temp.mp4')} {output_final_path}")
-    os.remove(output_final_path.replace(".mp4", "_temp.mp4"))
+    command = [
+        "ffmpeg", "-i", video_no_audio_path, "-i", video_base_path,
+        "-c:v", "copy", "-c:a", "copy", "-map", "0:v:0", "-map", "1:a:0",
+        "-y", temp_output
+    ]
+    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.replace(temp_output, output_final_path)
 
 
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...)):
-    """Recebe os vídeos e retorna o vídeo final com overlay e áudio original."""
-    
+    """Recebe dois vídeos e retorna o vídeo final com overlay e áudio original."""
+
     temp_video_base = tempfile.mktemp(suffix='.mp4')
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
     temp_video_no_audio = tempfile.mktemp(suffix='.mp4')
-    temp_audio_extracted = tempfile.mktemp(suffix='.wav')
     temp_output_video = tempfile.mktemp(suffix='.mp4')
 
     try:
@@ -119,19 +73,16 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
         with open(temp_video_overlay, "wb") as f:
             f.write(await video_overlay.read())
 
-        overlay_videos(temp_video_base, temp_video_overlay, temp_video_no_audio)
-
-        extract_audio(temp_video_base, temp_audio_extracted)
-
-        merge_audio_video(temp_video_no_audio, temp_audio_extracted, temp_output_video)
+        apply_overlay(temp_video_base, temp_video_overlay, temp_video_no_audio)
+        merge_audio(temp_video_base, temp_video_no_audio, temp_output_video)
 
         return FileResponse(temp_output_video, media_type='video/mp4', filename="output.mp4")
-    
+
     except Exception as e:
         return {"error": str(e)}
-    
+
     finally:
-        for file in [temp_video_base, temp_video_overlay, temp_video_no_audio, temp_audio_extracted, temp_output_video]:
+        for file in [temp_video_base, temp_video_overlay, temp_video_no_audio, temp_output_video]:
             if os.path.exists(file):
                 os.remove(file)
 
