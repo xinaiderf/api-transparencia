@@ -31,7 +31,7 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
         if ret_overlay:
             frame_overlay_resized = cv2.resize(frame_overlay, (frame_width, frame_height))
-            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.15, 0)
+            frame_final = cv2.addWeighted(frame_base, 1.0, frame_overlay_resized, 0.05, 0)
         else:
             frame_final = frame_base  # Se o overlay acabar, continua apenas com o vídeo base
 
@@ -44,12 +44,13 @@ def overlay_videos(video_base_path, video_overlay_path, output_video_no_audio):
 
 def add_original_audio(video_base_path, video_no_audio_path, output_final_path):
     """Copia o áudio original para o vídeo final sem reprocessamento."""
-    ffmpeg.input(video_no_audio_path).output(
-        output_final_path, 
-        vcodec="copy",  # Mantém o vídeo sem reprocessar
-        acodec="copy",  # Mantém o áudio original sem perda de qualidade
-        map="0:v:0",  # Usa o vídeo do arquivo sem áudio
-        map="1:a:0"   # Usa o áudio do vídeo base
+    input_video = ffmpeg.input(video_no_audio_path)
+    input_audio = ffmpeg.input(video_base_path)
+    
+    # Executa o FFmpeg para mesclar vídeo e áudio sem reprocessamento
+    ffmpeg.output(
+        input_video.video, input_audio.audio, output_final_path,
+        vcodec="copy", acodec="copy"
     ).run(overwrite_output=True)
 
 
