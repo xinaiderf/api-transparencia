@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from moviepy import VideoFileClip, CompositeVideoClip  # import simplificado
+from moviepy import VideoFileClip, CompositeVideoClip  # import simplificado para v2.x
 import tempfile
 import os
 import uvicorn
@@ -34,8 +34,16 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     if audio:
         video_combined = video_combined.with_audio(audio)
     
-    # Escrever o arquivo final
-    video_combined.write_videofile(output_path, codec="libx264", audio_codec="aac")
+    # Escrever o arquivo final com parâmetros otimizados para acelerar a geração
+    video_combined.write_videofile(
+        output_path,
+        codec="libx264",
+        audio_codec="aac",
+        threads=12,              # utiliza múltiplas threads conforme a capacidade da máquina
+        preset="ultrafast",      # acelera a codificação (pode aumentar o tamanho do arquivo)
+        ffmpeg_params=["-crf", "28"],  # ajusta a qualidade para reduzir o tempo de processamento
+        logger=None              # desativa logs detalhados para diminuir overhead
+    )
 
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...), transparencia: float = 0.05):
