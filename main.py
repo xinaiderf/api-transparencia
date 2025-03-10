@@ -12,8 +12,9 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     base_clip = VideoFileClip(video_base_path)
     overlay_clip = VideoFileClip(video_overlay_path)
     
-    # Redimensionar o overlay para o tamanho do vídeo base
+    # Ajustar a duração do overlay para ser igual à duração do vídeo base
     overlay_resized = overlay_clip.resize(base_clip.size)
+    overlay_resized = overlay_resized.set_duration(base_clip.duration)
     
     # Combinar os vídeos com transparência (caso necessário)
     video_combined = CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
