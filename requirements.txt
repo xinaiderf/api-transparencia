@@ -3,4 +3,3 @@ uvicorn
 numpy
 python-multipart
 moviepy==1.0.3
-PIL
