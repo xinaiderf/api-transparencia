@@ -1,7 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from moviepy.editor import VideoFileClip, CompositeVideoClip, AudioFileClip
-from PIL import Image
+from moviepy import VideoFileClip, CompositeVideoClip  # import simplificado
 import tempfile
 import os
 import uvicorn
@@ -9,21 +8,21 @@ import uvicorn
 app = FastAPI()
 
 def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, transparencia):
-    # Carregar os clipes de vídeo usando o MoviePy
+    # Carregar os clipes de vídeo usando MoviePy
     base_clip = VideoFileClip(video_base_path)
     overlay_clip = VideoFileClip(video_overlay_path)
     
     # Ajustar a duração do overlay para ser igual à duração do vídeo base
-    overlay_resized = overlay_clip.resize(base_clip.size)
-    overlay_resized = overlay_resized.set_duration(base_clip.duration)
-    
-    # Se necessário, redimensionar a imagem do overlay com o método correto do Pillow
-    overlay_resized = overlay_resized.fx(vfx.resize, base_clip.size, resample=Image.Resampling.LANCZOS)
+    overlay_resized = overlay_clip.resized(base_clip.size)
+    overlay_resized = overlay_resized.with_duration(base_clip.duration)
     
     # Combinar os vídeos com transparência (caso necessário)
-    video_combined = CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
+    video_combined = CompositeVideoClip([
+        base_clip, 
+        overlay_resized.with_opacity(transparencia)
+    ])
     
-    # Caso tenha áudio no vídeo base, podemos adicionar ao vídeo combinado
+    # Seleciona o áudio: prioriza o do vídeo base e, se não existir, usa o do overlay
     if base_clip.audio:
         audio = base_clip.audio
     elif overlay_clip.audio:
@@ -31,9 +30,9 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     else:
         audio = None
     
-    # Definir o áudio para o vídeo final, se presente
+    # Define o áudio para o vídeo final, se presente
     if audio:
-        video_combined = video_combined.set_audio(audio)
+        video_combined = video_combined.with_audio(audio)
     
     # Escrever o arquivo final
     video_combined.write_videofile(output_path, codec="libx264", audio_codec="aac")
