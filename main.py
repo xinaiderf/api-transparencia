@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 from moviepy.editor import VideoFileClip, CompositeVideoClip, AudioFileClip
+from PIL import Image
 import tempfile
 import os
 import uvicorn
@@ -15,6 +16,9 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     # Ajustar a duração do overlay para ser igual à duração do vídeo base
     overlay_resized = overlay_clip.resize(base_clip.size)
     overlay_resized = overlay_resized.set_duration(base_clip.duration)
+    
+    # Se necessário, redimensionar a imagem do overlay com o método correto do Pillow
+    overlay_resized = overlay_resized.fx(vfx.resize, base_clip.size, resample=Image.Resampling.LANCZOS)
     
     # Combinar os vídeos com transparência (caso necessário)
     video_combined = CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
