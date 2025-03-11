@@ -1,97 +1,49 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
+from moviepy import VideoFileClip, CompositeVideoClip  # import simplificado para v2.x
 import tempfile
 import os
 import uvicorn
-import av
-import cv2
-import numpy as np
-from fractions import Fraction
 
 app = FastAPI()
 
 def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, transparencia):
-    # Abrir containers dos vídeos base e overlay
-    base_container = av.open(video_base_path)
-    overlay_container = av.open(video_overlay_path)
-    output_container = av.open(output_path, mode='w')
+    # Carregar os clipes de vídeo usando MoviePy
+    base_clip = VideoFileClip(video_base_path)
+    overlay_clip = VideoFileClip(video_overlay_path)
     
-    # Seleciona o stream de vídeo (e áudio, se houver) do vídeo base
-    base_video_stream = next((s for s in base_container.streams if s.type == 'video'), None)
-    if base_video_stream is None:
-        raise Exception("Não foi possível encontrar stream de vídeo no arquivo base.")
-    base_audio_stream = next((s for s in base_container.streams if s.type == 'audio'), None)
+    # Ajustar a duração do overlay para ser igual à duração do vídeo base
+    overlay_resized = overlay_clip.resized(base_clip.size)
+    overlay_resized = overlay_resized.with_duration(base_clip.duration)
     
-    # Seleciona o stream de vídeo do overlay
-    overlay_video_stream = next((s for s in overlay_container.streams if s.type == 'video'), None)
-    if overlay_video_stream is None:
-        raise Exception("Não foi possível encontrar stream de vídeo no arquivo overlay.")
+    # Combinar os vídeos com transparência (caso necessário)
+    video_combined = CompositeVideoClip([
+        base_clip, 
+        overlay_resized.with_opacity(transparencia)
+    ])
     
-    # Obtém a taxa de quadros (rate) do vídeo base ou define um padrão
-    video_rate = base_video_stream.average_rate if base_video_stream.average_rate is not None else Fraction(30, 1)
-    video_rate = int(video_rate)
-    
-    # Cria o stream de vídeo de saída com o codec libx264 e define parâmetros
-    output_video_stream = output_container.add_stream("libx264", rate=video_rate)
-    output_video_stream.width = base_video_stream.width
-    output_video_stream.height = base_video_stream.height
-    output_video_stream.pix_fmt = "yuv420p"
-    
-    # Se houver áudio no vídeo base, cria o stream de áudio de saída com codec AAC
-    if base_audio_stream:
-        audio_rate = base_audio_stream.rate if base_audio_stream.rate is not None else 44100
-        output_audio_stream = output_container.add_stream("aac", rate=int(audio_rate))
+    # Seleciona o áudio: prioriza o do vídeo base e, se não existir, usa o do overlay
+    if base_clip.audio:
+        audio = base_clip.audio
+    elif overlay_clip.audio:
+        audio = overlay_clip.audio
     else:
-        output_audio_stream = None
-
-    # Preparar iterador para os frames do overlay
-    overlay_frames = overlay_container.decode(video=overlay_video_stream.index)
-    last_overlay_frame = None
-
-    # Processa cada frame do stream de vídeo base
-    for base_frame in base_container.decode(video=base_video_stream.index):
-        try:
-            overlay_frame = next(overlay_frames)
-            last_overlay_frame = overlay_frame
-        except StopIteration:
-            # Se os frames do overlay terminarem, usa o último frame disponível
-            overlay_frame = last_overlay_frame if last_overlay_frame is not None else base_frame
-
-        # Converte os frames para arrays NumPy (formato RGB)
-        base_img = base_frame.to_ndarray(format='rgb24')
-        overlay_img = overlay_frame.to_ndarray(format='rgb24')
-
-        # Redimensiona o frame do overlay para o tamanho do base, se necessário
-        if overlay_img.shape[:2] != base_img.shape[:2]:
-            overlay_img = cv2.resize(overlay_img, (base_img.shape[1], base_img.shape[0]))
-
-        # Combina os frames com a opacidade definida
-        blended = cv2.addWeighted(base_img, 1 - transparencia, overlay_img, transparencia, 0)
-
-        # Cria um novo frame de vídeo a partir do frame combinado
-        new_frame = av.VideoFrame.from_ndarray(blended, format='rgb24')
-        new_frame.pts = base_frame.pts
-        new_frame.time_base = base_frame.time_base
-
-        # Codifica e insere o frame no container de saída
-        for packet in output_video_stream.encode(new_frame):
-            output_container.mux(packet)
-
-    # Finaliza a codificação do vídeo
-    for packet in output_video_stream.encode():
-        output_container.mux(packet)
-
-    # Se existir áudio, reencoda os frames de áudio do stream base
-    if base_audio_stream:
-        for audio_frame in base_container.decode(audio=base_audio_stream.index):
-            for packet in output_audio_stream.encode(audio_frame):
-                output_container.mux(packet)
-        for packet in output_audio_stream.encode():
-            output_container.mux(packet)
-
-    output_container.close()
-    base_container.close()
-    overlay_container.close()
+        audio = None
+    
+    # Define o áudio para o vídeo final, se presente
+    if audio:
+        video_combined = video_combined.with_audio(audio)
+    
+    # Escrever o arquivo final com parâmetros otimizados para acelerar a geração
+    video_combined.write_videofile(
+        output_path,
+        codec="libx264",
+        audio_codec="aac",
+        threads=4,              # utiliza múltiplas threads conforme a capacidade da máquina
+        preset="ultrafast",      # acelera a codificação (pode aumentar o tamanho do arquivo)
+        ffmpeg_params=["-crf", "28"],  # ajusta a qualidade para reduzir o tempo de processamento
+        logger=None              # desativa logs detalhados para diminuir overhead
+    )
 
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...), transparencia: float = 0.05):
@@ -99,7 +51,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
     temp_output_video = tempfile.mktemp(suffix='.mp4')
     
-    # Salva os arquivos enviados em temporários
+
     with open(temp_video_base, "wb") as f:
         f.write(await video_base.read())
     with open(temp_video_overlay, "wb") as f:
@@ -113,7 +65,7 @@ async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadF
     finally:
         os.remove(temp_video_base)
         os.remove(temp_video_overlay)
-        # Se necessário, implemente rotina para remover o arquivo de saída posteriormente
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8010)
+
