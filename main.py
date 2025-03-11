@@ -1,8 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
-from moviepy.video.io.VideoFileClip import VideoFileClip
-from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
-from moviepy.video.fx.all import resize  # Importa a função de redimensionamento
+import moviepy
 import tempfile
 import os
 import uvicorn
@@ -11,12 +9,14 @@ app = FastAPI()
 
 def overlay_videos_with_audio(video_base_path: str, video_overlay_path: str, output_path: str, transparencia: float):
     # Abre os clipes utilizando os gerenciadores de contexto (MoviePy 2.1.2)
-    with VideoFileClip(video_base_path) as base_clip, VideoFileClip(video_overlay_path) as overlay_clip:
+    with moviepy.video.io.VideoFileClip.VideoFileClip(video_base_path) as base_clip, \
+         moviepy.video.io.VideoFileClip.VideoFileClip(video_overlay_path) as overlay_clip:
+         
         # Redimensiona o overlay para o tamanho do vídeo base utilizando a função resize e ajusta sua duração
-        overlay_resized = resize(overlay_clip, newsize=base_clip.size).set_duration(base_clip.duration)
+        overlay_resized = moviepy.video.fx.all.resize(overlay_clip, newsize=base_clip.size).set_duration(base_clip.duration)
         
         # Combina os clipes aplicando a transparência desejada
-        video_combined = CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
+        video_combined = moviepy.video.compositing.CompositeVideoClip.CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
         
         # Seleciona o áudio: utiliza o áudio do vídeo base; se não houver, usa o do overlay
         audio = base_clip.audio if base_clip.audio else overlay_clip.audio
