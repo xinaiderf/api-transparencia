@@ -1,6 +1,5 @@
-from fastapi import FastAPI, File, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from fastapi.concurrency import run_in_threadpool
 from moviepy import VideoFileClip, CompositeVideoClip  # import simplificado para v2.x
 import tempfile
 import os
@@ -47,42 +46,24 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     )
 
 @app.post("/overlay/")
-async def overlay_api(
-    background_tasks: BackgroundTasks,
-    video_base: UploadFile = File(...), 
-    video_overlay: UploadFile = File(...), 
-    transparencia: float = 0.05
-):
+async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...), transparencia: float = 0.05):
     temp_video_base = tempfile.mktemp(suffix='.mp4')
     temp_video_overlay = tempfile.mktemp(suffix='.mp4')
     temp_output_video = tempfile.mktemp(suffix='.mp4')
     
-    # Salva os arquivos temporariamente
     with open(temp_video_base, "wb") as f:
         f.write(await video_base.read())
     with open(temp_video_overlay, "wb") as f:
         f.write(await video_overlay.read())
     
     try:
-        # Executa a função de processamento em uma thread separada
-        await run_in_threadpool(
-            overlay_videos_with_audio, 
-            temp_video_base, 
-            temp_video_overlay, 
-            temp_output_video, 
-            transparencia
-        )
-        # Agenda a remoção dos arquivos temporários após o envio da resposta
-        background_tasks.add_task(os.remove, temp_video_base)
-        background_tasks.add_task(os.remove, temp_video_overlay)
-        background_tasks.add_task(os.remove, temp_output_video)
+        overlay_videos_with_audio(temp_video_base, temp_video_overlay, temp_output_video, transparencia)
         return FileResponse(temp_output_video, media_type='video/mp4', filename='output.mp4')
     except Exception as e:
-        # Em caso de erro, remove os arquivos imediatamente se existirem
-        for file in [temp_video_base, temp_video_overlay, temp_output_video]:
-            if os.path.exists(file):
-                os.remove(file)
         return {"error": str(e)}
+    finally:
+        os.remove(temp_video_base)
+        os.remove(temp_video_overlay)
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8010)
