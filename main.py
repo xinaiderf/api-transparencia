@@ -6,6 +6,7 @@ import uvicorn
 import av
 import cv2
 import numpy as np
+from fractions import Fraction
 
 app = FastAPI()
 
@@ -26,16 +27,20 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     if overlay_video_stream is None:
         raise Exception("Não foi possível encontrar stream de vídeo no arquivo overlay.")
     
+    # Obtém a taxa de quadros (rate) do vídeo base ou define um padrão
+    video_rate = base_video_stream.average_rate if base_video_stream.average_rate is not None else Fraction(30, 1)
+    video_rate = int(video_rate)
+    
     # Cria o stream de vídeo de saída com o codec libx264 e define parâmetros
-    output_video_stream = output_container.add_stream("libx264", rate=base_video_stream.average_rate)
+    output_video_stream = output_container.add_stream("libx264", rate=video_rate)
     output_video_stream.width = base_video_stream.width
     output_video_stream.height = base_video_stream.height
     output_video_stream.pix_fmt = "yuv420p"
     
     # Se houver áudio no vídeo base, cria o stream de áudio de saída com codec AAC
     if base_audio_stream:
-        output_audio_stream = output_container.add_stream("aac", rate=base_audio_stream.rate)
-        # Removemos a atribuição de channel_layout, pois não é suportada
+        audio_rate = base_audio_stream.rate if base_audio_stream.rate is not None else 44100
+        output_audio_stream = output_container.add_stream("aac", rate=int(audio_rate))
     else:
         output_audio_stream = None
 
