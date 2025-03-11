@@ -23,7 +23,8 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     if audio:
         video_combined = video_combined.with_audio(audio)
 
-    video_combined.write_videofile(output_path, codec="libx264", audio_codec="aac")
+    # Processamento explicitamente em CPU (sem uso de GPU)
+    video_combined.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=4)
 
 @app.post("/overlay/")
 async def overlay_api(video_base: UploadFile = File(...), video_overlay: UploadFile = File(...), transparencia: float = 0.05):
