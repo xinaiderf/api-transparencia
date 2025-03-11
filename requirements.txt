@@ -3,4 +3,4 @@ uvicorn
 numpy
 python-multipart
 av
-opencv-python
+opencv-python-headless
