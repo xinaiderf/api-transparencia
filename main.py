@@ -35,9 +35,7 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     # Se houver áudio no vídeo base, cria o stream de áudio de saída com codec AAC
     if base_audio_stream:
         output_audio_stream = output_container.add_stream("aac", rate=base_audio_stream.rate)
-        # Em vez de definir channels diretamente, copie o layout do canal, se disponível
-        if base_audio_stream.codec_context.channel_layout:
-            output_audio_stream.codec_context.channel_layout = base_audio_stream.codec_context.channel_layout
+        # Removemos a atribuição de channel_layout, pois não é suportada
     else:
         output_audio_stream = None
 
