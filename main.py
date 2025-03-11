@@ -39,7 +39,7 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         output_path,
         codec="libx264",
         audio_codec="aac",
-        threads=12,              # utiliza múltiplas threads conforme a capacidade da máquina
+        threads=4,              # utiliza múltiplas threads conforme a capacidade da máquina
         preset="ultrafast",      # acelera a codificação (pode aumentar o tamanho do arquivo)
         ffmpeg_params=["-crf", "28"],  # ajusta a qualidade para reduzir o tempo de processamento
         logger=None              # desativa logs detalhados para diminuir overhead
