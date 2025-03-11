@@ -12,11 +12,15 @@ def overlay_videos_with_audio(video_base_path: str, video_overlay_path: str, out
     with moviepy.video.io.VideoFileClip.VideoFileClip(video_base_path) as base_clip, \
          moviepy.video.io.VideoFileClip.VideoFileClip(video_overlay_path) as overlay_clip:
          
-        # Redimensiona o overlay para o tamanho do vídeo base utilizando a função resize e ajusta sua duração
-        overlay_resized = moviepy.video.fx.all.resize(overlay_clip, newsize=base_clip.size).set_duration(base_clip.duration)
+        # Redimensiona o overlay para o tamanho do vídeo base utilizando a função resize 
+        # e ajusta sua duração para ser igual ao do base_clip
+        overlay_resized = moviepy.video.fx.resize.resize(overlay_clip, newsize=base_clip.size).set_duration(base_clip.duration)
         
         # Combina os clipes aplicando a transparência desejada
-        video_combined = moviepy.video.compositing.CompositeVideoClip.CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
+        video_combined = moviepy.video.compositing.CompositeVideoClip.CompositeVideoClip([
+            base_clip, 
+            overlay_resized.set_opacity(transparencia)
+        ])
         
         # Seleciona o áudio: utiliza o áudio do vídeo base; se não houver, usa o do overlay
         audio = base_clip.audio if base_clip.audio else overlay_clip.audio
