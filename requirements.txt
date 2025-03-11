@@ -2,4 +2,4 @@ fastapi
 uvicorn
 numpy
 python-multipart
-moviepy
+moviepy==1.0.3
