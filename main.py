@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
-from moviepy.editor import VideoFileClip, CompositeVideoClip
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 import tempfile
 import os
 import uvicorn
@@ -8,38 +9,29 @@ import uvicorn
 app = FastAPI()
 
 def overlay_videos_with_audio(video_base_path: str, video_overlay_path: str, output_path: str, transparencia: float):
-    # Carrega os clipes de vídeo
-    base_clip = VideoFileClip(video_base_path)
-    overlay_clip = VideoFileClip(video_overlay_path)
-    
-    # Redimensiona o overlay para o tamanho do vídeo base e ajusta sua duração
-    overlay_resized = overlay_clip.resize(base_clip.size).set_duration(base_clip.duration)
-    
-    # Combina os vídeos aplicando a transparência definida
-    video_combined = CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
-    
-    # Seleciona o áudio: prioriza o do vídeo base; se não houver, utiliza o do overlay
-    audio = base_clip.audio if base_clip.audio else overlay_clip.audio
-    if audio:
-        video_combined = video_combined.set_audio(audio)
-    
-    # Exporta o vídeo final com parâmetros otimizados
-    video_combined.write_videofile(
-        output_path,
-        codec="libx264",
-        audio_codec="aac",
-        threads=os.cpu_count() or 1,
-        preset="ultrafast",
-        ffmpeg_params=["-crf", "28"],
-        temp_audiofile='temp-audio.m4a',
-        remove_temp=True,
-        logger=None
-    )
-    
-    # Fecha os clipes para liberar recursos
-    base_clip.close()
-    overlay_clip.close()
-    video_combined.close()
+    # Abre os clipes utilizando os gerenciadores de contexto (MoviePy 2.1.2)
+    with VideoFileClip(video_base_path) as base_clip, VideoFileClip(video_overlay_path) as overlay_clip:
+        # Redimensiona o overlay para o tamanho do vídeo base e ajusta sua duração
+        overlay_resized = overlay_clip.resize(base_clip.size).set_duration(base_clip.duration)
+        # Combina os clipes aplicando a transparência desejada
+        video_combined = CompositeVideoClip([base_clip, overlay_resized.set_opacity(transparencia)])
+        # Seleciona o áudio: prioriza o áudio do vídeo base; se não houver, usa o do overlay
+        audio = base_clip.audio if base_clip.audio else overlay_clip.audio
+        if audio:
+            video_combined = video_combined.set_audio(audio)
+        # Exporta o vídeo final com parâmetros otimizados para performance
+        video_combined.write_videofile(
+            output_path,
+            codec="libx264",
+            audio_codec="aac",
+            threads=os.cpu_count() or 1,
+            preset="ultrafast",
+            ffmpeg_params=["-crf", "28"],
+            temp_audiofile='temp-audio.m4a',
+            remove_temp=True,
+            logger=None
+        )
+        video_combined.close()
 
 @app.post("/overlay/")
 async def overlay_api(
@@ -48,7 +40,7 @@ async def overlay_api(
     transparencia: float = 0.05,
     background_tasks: BackgroundTasks = None
 ):
-    # Salva os arquivos de entrada em locais temporários
+    # Salva os arquivos de entrada em arquivos temporários
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_base:
         base_path = tmp_base.name
         tmp_base.write(await video_base.read())
@@ -56,7 +48,7 @@ async def overlay_api(
         overlay_path = tmp_overlay.name
         tmp_overlay.write(await video_overlay.read())
     
-    # Cria um caminho para o arquivo de saída
+    # Cria um caminho temporário para o arquivo de saída
     output_path = tempfile.mktemp(suffix=".mp4")
     
     try:
