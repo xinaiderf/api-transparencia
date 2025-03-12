@@ -12,6 +12,21 @@ import shutil
 
 app = FastAPI()
 
+def has_audio(video_path):
+    """
+    Verifica se o vídeo possui pelo menos uma faixa de áudio usando ffprobe.
+    """
+    command = [
+        'ffprobe', '-v', 'error', '-select_streams', 'a',
+        '-show_entries', 'stream=index',
+        '-of', 'csv=p=0', video_path
+    ]
+    try:
+        result = subprocess.check_output(command, stderr=subprocess.STDOUT)
+        return bool(result.strip())
+    except subprocess.CalledProcessError:
+        return False
+
 def extract_audio(video_path, audio_path):
     """
     Extrai o áudio do vídeo base, convertendo-o para AAC com bitrate de 192k.
@@ -45,7 +60,6 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
 
     # Usa o VideoWriter do OpenCV para gravar os frames processados
-    # (Utilizando o codec 'mp4v' para gerar um vídeo intermediário)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(temp_video_path, fourcc, fps, (width, height))
 
@@ -59,7 +73,7 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
             # Se o vídeo de overlay acabar, utiliza um frame preto
             frame_overlay = np.zeros_like(frame_base)
 
-        # Redimensiona o frame de overlay para o mesmo tamanho do base
+        # Redimensiona o frame de overlay para o tamanho do vídeo base
         frame_overlay = cv2.resize(frame_overlay, (width, height))
         # Mescla os frames com a transparência definida
         blended_frame = cv2.addWeighted(frame_base, 1 - transparencia, frame_overlay, transparencia, 0)
@@ -72,26 +86,29 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
             if blended_frame is not None:
                 out.write(blended_frame)
 
-    # Libera recursos
+    # Libera os recursos de vídeo
     cap_base.release()
     cap_overlay.release()
     out.release()
 
-    # Extrai o áudio do vídeo base
+    # Verifica se o vídeo base possui áudio
     audio_extracted = False
-    if temp_dir is None:
-        temp_audio_path = tempfile.mktemp(suffix='.m4a')
+    if has_audio(video_base_path):
+        if temp_dir is None:
+            temp_audio_path = tempfile.mktemp(suffix='.m4a')
+        else:
+            temp_audio_path = os.path.join(temp_dir, 'temp_audio.m4a')
+        try:
+            extract_audio(video_base_path, temp_audio_path)
+            audio_extracted = True
+        except subprocess.CalledProcessError as e:
+            print("Falha na extração de áudio:", e)
+            audio_extracted = False
     else:
-        temp_audio_path = os.path.join(temp_dir, 'temp_audio.m4a')
-    try:
-        extract_audio(video_base_path, temp_audio_path)
-        audio_extracted = True
-    except subprocess.CalledProcessError as e:
-        print("Falha na extração de áudio. O vídeo base pode não possuir faixa de áudio ou ocorreu erro no ffmpeg.")
+        print("O vídeo base não possui faixa de áudio.")
         audio_extracted = False
 
     # Comprime e mescla o vídeo com o áudio extraído, reencodificando com libx264
-    # Ajuste o CRF (23 é padrão; valores maiores geram arquivos menores com perda de qualidade)
     if audio_extracted:
         command = [
             'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path,
@@ -105,11 +122,10 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         os.remove(temp_audio_path)
     else:
-        # Se não houver áudio, reencoda apenas o vídeo
+        # Reencoda apenas o vídeo, sem áudio
         command = [
             'ffmpeg', '-i', temp_video_path,
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
-            '-c:a', 'aac', '-b:a', '192k',
             output_path,
             '-y'
         ]
