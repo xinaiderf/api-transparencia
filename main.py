@@ -14,16 +14,18 @@ app = FastAPI()
 
 def has_audio(video_path):
     """
-    Verifica se o vídeo possui pelo menos uma faixa de áudio usando ffprobe.
+    Verifica se o vídeo possui ao menos uma faixa de áudio usando ffprobe.
     """
     command = [
         'ffprobe', '-v', 'error', '-select_streams', 'a',
-        '-show_entries', 'stream=index',
-        '-of', 'csv=p=0', video_path
+        '-show_entries', 'stream=codec_type',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        video_path
     ]
     try:
         result = subprocess.check_output(command, stderr=subprocess.STDOUT)
-        return bool(result.strip())
+        # Se a saída contiver "audio", há faixa de áudio
+        return b"audio" in result.lower()
     except subprocess.CalledProcessError:
         return False
 
@@ -41,22 +43,26 @@ def extract_audio(video_path, audio_path):
     subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
 def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, transparencia, temp_dir=None):
-    # Abre os vídeos
+    # Abre os vídeos com OpenCV
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
+
     # Obtém propriedades do vídeo base
     width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap_base.get(cv2.CAP_PROP_FPS)
     frame_count = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # Define o caminho temporário para o vídeo processado (sem áudio)
+    if frame_count == 0:
+        raise Exception("Nenhum frame lido do vídeo base.")
+
+    # Define o caminho do arquivo de vídeo temporário
     if temp_dir is None:
         temp_video_path = tempfile.mktemp(suffix='.mp4')
     else:
         temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
 
-    # Configura o VideoWriter do OpenCV
+    # Configura o VideoWriter com o codec 'mp4v'
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(temp_video_path, fourcc, fps, (width, height))
 
@@ -68,11 +74,12 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         if not ret_overlay:
             # Se o vídeo de overlay acabar, utiliza um frame preto
             frame_overlay = np.zeros_like(frame_base)
+        # Redimensiona o frame de overlay para o tamanho do vídeo base
         frame_overlay = cv2.resize(frame_overlay, (width, height))
         blended_frame = cv2.addWeighted(frame_base, 1 - transparencia, frame_overlay, transparencia, 0)
         return blended_frame
 
-    # Processa cada frame com uma barra de progresso
+    # Processa os frames com uma barra de progresso
     with ThreadPoolExecutor() as executor:
         for i in tqdm(range(frame_count), desc="Processando vídeo", unit="frame"):
             blended_frame = process_frame(i)
@@ -84,7 +91,11 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     cap_overlay.release()
     out.release()
 
-    # Verifica se o vídeo base possui áudio e tenta extrair se houver
+    # Verifica se o arquivo temporário foi criado corretamente
+    if not os.path.exists(temp_video_path) or os.stat(temp_video_path).st_size == 0:
+        raise Exception("O arquivo de vídeo temporário não foi criado corretamente.")
+
+    # Verifica se o vídeo base possui áudio e tenta extrair
     audio_extracted = False
     if has_audio(video_base_path):
         if temp_dir is None:
@@ -93,7 +104,10 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
             temp_audio_path = os.path.join(temp_dir, 'temp_audio.m4a')
         try:
             extract_audio(video_base_path, temp_audio_path)
-            audio_extracted = True
+            if os.path.exists(temp_audio_path) and os.stat(temp_audio_path).st_size > 0:
+                audio_extracted = True
+            else:
+                audio_extracted = False
         except subprocess.CalledProcessError as e:
             print("Falha na extração de áudio:", e)
             audio_extracted = False
@@ -101,32 +115,41 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         print("O vídeo base não possui faixa de áudio.")
         audio_extracted = False
 
+    # Tenta mesclar e reencodar o vídeo (com ou sem áudio)
     try:
         if audio_extracted:
-            # Se houver áudio, mescla o vídeo e o áudio
             command = [
                 'ffmpeg', '-y', '-i', temp_video_path, '-i', temp_audio_path,
                 '-map', '0:v', '-map', '1:a',
                 '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p',
                 '-c:a', 'aac', '-b:a', '192k',
+                '-movflags', 'faststart',
                 '-shortest',
                 output_path
             ]
-            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                error_msg = result.stderr.decode()
+                print("Erro no ffmpeg com áudio:", error_msg)
+                raise Exception(error_msg)
             os.remove(temp_audio_path)
         else:
-            # Se não houver áudio, reencoda apenas o vídeo
             command = [
                 'ffmpeg', '-y', '-i', temp_video_path,
                 '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p',
+                '-movflags', 'faststart',
                 output_path
             ]
-            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                error_msg = result.stderr.decode()
+                print("Erro no ffmpeg sem áudio:", error_msg)
+                raise Exception(error_msg)
     except subprocess.CalledProcessError as e:
-        # Imprime o stderr do ffmpeg para ajudar na identificação do problema
         print("Erro no ffmpeg:", e.stderr.decode())
         raise e
 
+    # Remove o arquivo temporário de vídeo
     os.remove(temp_video_path)
 
 @app.post("/overlay/")
@@ -142,7 +165,7 @@ async def overlay_api(
     temp_video_overlay = os.path.join(temp_folder, 'video_overlay.mp4')
     temp_output_video = os.path.join(temp_folder, 'output.mp4')
 
-    # Salva os vídeos enviados na pasta temporária
+    # Salva os arquivos de vídeo enviados na pasta temporária
     with open(temp_video_base, "wb") as f:
         f.write(await video_base.read())
     with open(temp_video_overlay, "wb") as f:
