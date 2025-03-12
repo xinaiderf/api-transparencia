@@ -2,4 +2,5 @@ fastapi
 uvicorn
 numpy
 python-multipart
-moviepy
+opencv-python
+tqdm
