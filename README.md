@@ -7,14 +7,10 @@ docker exec -it nome_do_container bash
 Atualize os pacotes no contêiner:
 apt-get update
 
-Instale as dependências necessárias:
-apt-get install -y apt-transport-https software-properties-common
-
-Instale o FFmpeg:
-apt-get install -y ffmpeg
+Instale as dependências necessáriase ffmpeg:
+apt-get install -y apt-transport-https software-properties-common && apt-get install -y ffmpeg
 
 Verifique a instalação do FFmpeg:
 ffmpeg -version
-Esses comandos vão garantir que o FFmpeg seja instalado corretamente dentro do seu contêiner.
 
-Se precisar de mais detalhes ou encontrar problemas, me avise!
+Esses comandos vão garantir que o FFmpeg seja instalado corretamente dentro do seu contêiner.
