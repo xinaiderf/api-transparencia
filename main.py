@@ -13,7 +13,7 @@ import shutil
 app = FastAPI()
 
 def extract_audio(video_path, audio_path):
-    # Extrai o áudio do vídeo base usando ffmpeg
+    # Tenta extrair o áudio do vídeo base usando ffmpeg
     command = [
         'ffmpeg', '-i', video_path, '-q:a', '0', '-map', 'a', audio_path, '-y'
     ]
@@ -66,24 +66,33 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     cap_overlay.release()
     out.release()
 
-    # Extrai o áudio do vídeo base
+    # Tenta extrair o áudio do vídeo base
+    audio_extracted = False
     if temp_dir is None:
         temp_audio_path = tempfile.mktemp(suffix='.mp3')
     else:
         temp_audio_path = os.path.join(temp_dir, 'temp_audio.mp3')
-    extract_audio(video_base_path, temp_audio_path)
+    try:
+        extract_audio(video_base_path, temp_audio_path)
+        audio_extracted = True
+    except subprocess.CalledProcessError as e:
+        print("Falha na extração de áudio. O vídeo base pode não possuir faixa de áudio.")
+        audio_extracted = False
 
-    # Combina o vídeo processado com o áudio original
-    command = [
-        'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path,
-        '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental',
-        output_path, '-y'
-    ]
-    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    if audio_extracted:
+        # Combina o vídeo processado com o áudio original
+        command = [
+            'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path,
+            '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental',
+            output_path, '-y'
+        ]
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        os.remove(temp_audio_path)
+    else:
+        # Se não houver áudio, apenas copia o vídeo processado para o arquivo de saída
+        shutil.copy(temp_video_path, output_path)
 
-    # Remove os arquivos temporários criados nesta função
     os.remove(temp_video_path)
-    os.remove(temp_audio_path)
 
 @app.post("/overlay/")
 async def overlay_api(
@@ -107,7 +116,7 @@ async def overlay_api(
     try:
         overlay_videos_with_audio(temp_video_base, temp_video_overlay, temp_output_video, transparencia, temp_dir=temp_folder)
         if background_tasks:
-            # Agende a remoção da pasta inteira somente após o envio da resposta
+            # Agenda a remoção da pasta temporária após o envio da resposta
             background_tasks.add_task(shutil.rmtree, temp_folder)
         return FileResponse(temp_output_video, media_type='video/mp4', filename='output.mp4')
     except Exception as e:
