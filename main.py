@@ -1,43 +1,81 @@
 from fastapi import FastAPI, File, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
-from moviepy import VideoFileClip, CompositeVideoClip
+import cv2
+import numpy as np
 import tempfile
 import os
 import uvicorn
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm  # Biblioteca para a barra de progresso
 
 app = FastAPI()
 
+def extract_audio(video_path, audio_path):
+    # Extrai o áudio do vídeo base usando ffmpeg
+    command = [
+        'ffmpeg', '-i', video_path, '-q:a', '0', '-map', 'a', audio_path, '-y'
+    ]
+    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
 def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, transparencia):
-    base_clip = VideoFileClip(video_base_path)
-    overlay_clip = VideoFileClip(video_overlay_path)
+    # Carrega os vídeos
+    cap_base = cv2.VideoCapture(video_base_path)
+    cap_overlay = cv2.VideoCapture(video_overlay_path)
 
-    overlay_resized = overlay_clip.resized(base_clip.size).with_duration(base_clip.duration)
+    # Obtém propriedades do vídeo base
+    width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap_base.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    video_combined = CompositeVideoClip([
-        base_clip,
-        overlay_resized.with_opacity(transparencia)
-    ])
+    # Configura o escritor de vídeo
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    temp_video_path = tempfile.mktemp(suffix='.mp4')
+    out = cv2.VideoWriter(temp_video_path, fourcc, fps, (width, height))
 
-    audio = base_clip.audio or overlay_clip.audio
+    def process_frame(i):
+        ret_base, frame_base = cap_base.read()
+        ret_overlay, frame_overlay = cap_overlay.read()
 
-    if audio:
-        video_combined = video_combined.with_audio(audio)
+        if not ret_base:
+            return None
+        if not ret_overlay:
+            frame_overlay = np.zeros_like(frame_base)
 
-    video_combined.write_videofile(
-        output_path,
-        codec="libx264",
-        audio_codec="aac",
-        threads=10,
-        preset="ultrafast",
-        ffmpeg_params=["-crf", "28", "-threads", "10"],
-        temp_audiofile='temp-audio.m4a',
-        remove_temp=True,
-        logger='bar'
-    )
+        # Redimensiona o frame de sobreposição para o tamanho do frame base
+        frame_overlay = cv2.resize(frame_overlay, (width, height))
 
-    video_combined.close()
-    base_clip.close()
-    overlay_clip.close()
+        # Aplica a transparência
+        blended_frame = cv2.addWeighted(frame_base, 1 - transparencia, frame_overlay, transparencia, 0)
+
+        return blended_frame
+
+    with ThreadPoolExecutor() as executor:
+        # Adiciona a barra de progresso ao loop de processamento de frames
+        for i in tqdm(range(frame_count), desc="Processando vídeo", unit="frame"):
+            blended_frame = process_frame(i)
+            if blended_frame is not None:
+                out.write(blended_frame)
+
+    # Libera os recursos
+    cap_base.release()
+    cap_overlay.release()
+    out.release()
+
+    # Extrai o áudio do vídeo base
+    temp_audio_path = tempfile.mktemp(suffix='.mp3')
+    extract_audio(video_base_path, temp_audio_path)
+
+    # Combina o vídeo processado com o áudio original
+    command = [
+        'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path, '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', output_path, '-y'
+    ]
+    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    # Remove arquivos temporários
+    os.remove(temp_video_path)
+    os.remove(temp_audio_path)
 
 @app.post("/overlay/")
 async def overlay_api(
