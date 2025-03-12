@@ -106,12 +106,11 @@ async def overlay_api(
 
     try:
         overlay_videos_with_audio(temp_video_base, temp_video_overlay, temp_output_video, transparencia, temp_dir=temp_folder)
-        # Agenda a remoção da pasta temporária após o envio da resposta
         if background_tasks:
+            # Agende a remoção da pasta inteira somente após o envio da resposta
             background_tasks.add_task(shutil.rmtree, temp_folder)
         return FileResponse(temp_output_video, media_type='video/mp4', filename='output.mp4')
     except Exception as e:
-        # Em caso de erro, remove a pasta temporária imediatamente
         shutil.rmtree(temp_folder, ignore_errors=True)
         return {"error": str(e)}
 
