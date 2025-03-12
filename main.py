@@ -8,6 +8,7 @@ import uvicorn
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm  # Biblioteca para a barra de progresso
+import shutil
 
 app = FastAPI()
 
@@ -18,7 +19,7 @@ def extract_audio(video_path, audio_path):
     ]
     subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, transparencia):
+def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, transparencia, temp_dir=None):
     # Carrega os vídeos
     cap_base = cv2.VideoCapture(video_base_path)
     cap_overlay = cv2.VideoCapture(video_overlay_path)
@@ -31,7 +32,10 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
 
     # Configura o escritor de vídeo
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    temp_video_path = tempfile.mktemp(suffix='.mp4')
+    if temp_dir is None:
+        temp_video_path = tempfile.mktemp(suffix='.mp4')
+    else:
+        temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
     out = cv2.VideoWriter(temp_video_path, fourcc, fps, (width, height))
 
     def process_frame(i):
@@ -52,7 +56,6 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         return blended_frame
 
     with ThreadPoolExecutor() as executor:
-        # Adiciona a barra de progresso ao loop de processamento de frames
         for i in tqdm(range(frame_count), desc="Processando vídeo", unit="frame"):
             blended_frame = process_frame(i)
             if blended_frame is not None:
@@ -64,16 +67,21 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     out.release()
 
     # Extrai o áudio do vídeo base
-    temp_audio_path = tempfile.mktemp(suffix='.mp3')
+    if temp_dir is None:
+        temp_audio_path = tempfile.mktemp(suffix='.mp3')
+    else:
+        temp_audio_path = os.path.join(temp_dir, 'temp_audio.mp3')
     extract_audio(video_base_path, temp_audio_path)
 
     # Combina o vídeo processado com o áudio original
     command = [
-        'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path, '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', output_path, '-y'
+        'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path,
+        '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental',
+        output_path, '-y'
     ]
     subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-    # Remove arquivos temporários
+    # Remove os arquivos temporários criados nesta função
     os.remove(temp_video_path)
     os.remove(temp_audio_path)
 
@@ -84,29 +92,28 @@ async def overlay_api(
     transparencia: float = 0.05,
     background_tasks: BackgroundTasks = None
 ):
-    temp_video_base = tempfile.mktemp(suffix='.mp4')
-    temp_video_overlay = tempfile.mktemp(suffix='.mp4')
-    temp_output_video = tempfile.mktemp(suffix='.mp4')
+    # Cria uma pasta temporária para armazenar os arquivos
+    temp_folder = tempfile.mkdtemp()
+    temp_video_base = os.path.join(temp_folder, 'video_base.mp4')
+    temp_video_overlay = os.path.join(temp_folder, 'video_overlay.mp4')
+    temp_output_video = os.path.join(temp_folder, 'output.mp4')
 
+    # Salva os vídeos enviados na pasta temporária
     with open(temp_video_base, "wb") as f:
         f.write(await video_base.read())
     with open(temp_video_overlay, "wb") as f:
         f.write(await video_overlay.read())
 
     try:
-        overlay_videos_with_audio(temp_video_base, temp_video_overlay, temp_output_video, transparencia)
+        overlay_videos_with_audio(temp_video_base, temp_video_overlay, temp_output_video, transparencia, temp_dir=temp_folder)
+        # Agenda a remoção da pasta temporária após o envio da resposta
         if background_tasks:
-            background_tasks.add_task(os.remove, temp_output_video)
+            background_tasks.add_task(shutil.rmtree, temp_folder)
         return FileResponse(temp_output_video, media_type='video/mp4', filename='output.mp4')
     except Exception as e:
+        # Em caso de erro, remove a pasta temporária imediatamente
+        shutil.rmtree(temp_folder, ignore_errors=True)
         return {"error": str(e)}
-    finally:
-        for file_path in [temp_video_base, temp_video_overlay]:
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except Exception:
-                    pass
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8010)
