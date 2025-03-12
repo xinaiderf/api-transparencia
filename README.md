@@ -1,5 +1,8 @@
 Aqui está o passo a passo completo para instalar o FFmpeg dentro de um contêiner:
 
+Veja o nome do conteiner:
+docker ps
+
 Entre no contêiner (substitua nome_do_container pelo nome do seu contêiner):
 
 docker exec -it nome_do_container bash
