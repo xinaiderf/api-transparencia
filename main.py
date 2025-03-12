@@ -13,9 +13,9 @@ import shutil
 app = FastAPI()
 
 def extract_audio(video_path, audio_path):
-    # Tenta extrair o áudio do vídeo base usando ffmpeg
+    # Tenta extrair o áudio do vídeo base usando ffmpeg, mapeando explicitamente a faixa de áudio
     command = [
-        'ffmpeg', '-i', video_path, '-vn', '-q:a', '0', '-map', 'a', audio_path, '-y'
+        'ffmpeg', '-i', video_path, '-vn', '-q:a', '0', '-map', '0:a', audio_path, '-y'
     ]
     subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
@@ -80,9 +80,10 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         audio_extracted = False
 
     if audio_extracted:
-        # Combina o vídeo processado com o áudio original
+        # Combina o vídeo processado com o áudio original, mapeando explicitamente as streams
         command = [
             'ffmpeg', '-i', temp_video_path, '-i', temp_audio_path,
+            '-map', '0:v', '-map', '1:a',
             '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', '-shortest',
             output_path, '-y'
         ]
