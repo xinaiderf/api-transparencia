@@ -10,6 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm  # Biblioteca para a barra de progresso
 import shutil
 
+# Caminhos para o ffmpeg e ffprobe compilados com GLIBC 2.35
+FFMPEG_BIN = "/usr/local/bin/ffmpeg-2.35"  # Atualize este caminho conforme necessário
+FFPROBE_BIN = "/usr/local/bin/ffprobe-2.35"  # Atualize este caminho conforme necessário
+
 app = FastAPI()
 
 def has_audio(video_path):
@@ -17,7 +21,7 @@ def has_audio(video_path):
     Verifica se o vídeo possui ao menos uma faixa de áudio usando ffprobe.
     """
     command = [
-        'ffprobe', '-v', 'error', '-select_streams', 'a',
+        FFPROBE_BIN, '-v', 'error', '-select_streams', 'a',
         '-show_entries', 'stream=codec_type',
         '-of', 'default=noprint_wrappers=1:nokey=1',
         video_path
@@ -34,7 +38,7 @@ def extract_audio(video_path, audio_path):
     Extrai o áudio do vídeo base, convertendo-o para AAC com bitrate de 192k.
     """
     command = [
-        'ffmpeg', '-y', '-i', video_path,
+        FFMPEG_BIN, '-y', '-i', video_path,
         '-vn',                     # Ignora o vídeo
         '-acodec', 'aac',          # Codifica em AAC
         '-b:a', '192k',            # Bitrate de 192k
@@ -119,7 +123,7 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
     try:
         if audio_extracted:
             command = [
-                'ffmpeg', '-y', '-i', temp_video_path, '-i', temp_audio_path,
+                FFMPEG_BIN, '-y', '-i', temp_video_path, '-i', temp_audio_path,
                 '-map', '0:v', '-map', '1:a',
                 '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p',
                 '-c:a', 'aac', '-b:a', '192k',
@@ -135,7 +139,7 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
             os.remove(temp_audio_path)
         else:
             command = [
-                'ffmpeg', '-y', '-i', temp_video_path,
+                FFMPEG_BIN, '-y', '-i', temp_video_path,
                 '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p',
                 '-movflags', 'faststart',
                 output_path
