@@ -10,10 +10,6 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm  # Biblioteca para a barra de progresso
 import shutil
 
-# Caminhos para o ffmpeg e ffprobe compilados com GLIBC 2.35
-FFMPEG_BIN = "/usr/local/bin/ffmpeg-2.35"  # Atualize este caminho conforme necessário
-FFPROBE_BIN = "/bin/ffprobe-2.35"  # Atualize este caminho conforme necessário
-
 app = FastAPI()
 
 def has_audio(video_path):
