@@ -125,12 +125,11 @@ def overlay_videos_with_audio(video_base_path, video_overlay_path, output_path, 
         audio_extracted = False
 
     if audio_extracted:
-        # Combina o vídeo processado com a faixa de áudio extraída ou criada utilizando reencodificação para otimização
+        # Combina o vídeo processado com a faixa de áudio extraída ou criada
         command = [
             'ffmpeg', '-y',
             '-i', temp_video_path, '-i', temp_audio_path,
-            '-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
-            '-c:a', 'aac', '-b:a', '128k',
+            '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental',
             output_path
         ]
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
