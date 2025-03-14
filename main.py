@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
-from fastapi.background import BackgroundTask
+from starlette.background import BackgroundTask
 import subprocess, tempfile, os, shutil, uvicorn
 
 app = FastAPI()
@@ -44,7 +44,7 @@ async def overlay_api(
     
     try:
         overlay_videos_with_audio(base_path, overlay_path, output_path, transparencia)
-        # A pasta será removida após o envio da resposta.
+        # A pasta temporária será removida após o envio da resposta.
         return FileResponse(
             output_path, 
             media_type='video/mp4', 
@@ -52,7 +52,6 @@ async def overlay_api(
             background=BackgroundTask(shutil.rmtree, temp_dir)
         )
     except Exception as e:
-        # Em caso de erro, remove a pasta imediatamente.
         shutil.rmtree(temp_dir, ignore_errors=True)
         return {"error": str(e)}
 
